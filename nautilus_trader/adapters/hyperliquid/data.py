@@ -87,7 +87,7 @@ class HyperliquidDataClient(LiveMarketDataClient):
     def __init__(
         self,
         loop: asyncio.AbstractEventLoop,
-        client: Any,  # nautilus_pyo3.HyperliquidHttpClient
+        client: nautilus_pyo3.HyperliquidHttpClient,
         msgbus: MessageBus,
         cache: Cache,
         clock: LiveClock,
@@ -114,9 +114,8 @@ class HyperliquidDataClient(LiveMarketDataClient):
         self._log.info(f"{config.http_proxy_url=}", LogColor.BLUE)
         self._log.info(f"{config.ws_proxy_url=}", LogColor.BLUE)
 
-        # HTTP client
+        # HTTP client (uses EVM private key for authentication, not API key)
         self._http_client = client
-        # TODO: HyperliquidHttpClient doesn't expose api_key attribute yet
         self._log.info("HTTP client initialized", LogColor.BLUE)
 
         # WebSocket clients
@@ -153,11 +152,8 @@ class HyperliquidDataClient(LiveMarketDataClient):
                 instruments,
                 self._handle_msg,
             )
-            # NOTE: wait_until_active is not yet implemented in the Hyperliquid WebSocket client
-            # The connection still works without it, but we lose the synchronization guarantee
-            # that the WebSocket is fully active before subscribing
-            # TODO: Implement wait_until_active in HyperliquidWebSocketClient (Rust side)
-            # await ws_client.wait_until_active(timeout_secs=10.0)
+            # Note: wait_until_active not yet available for Hyperliquid WebSocket client.
+            # Connection works without it but subscriptions may race with connection setup.
             self._log.info(
                 f"Connected to {product_type_str} WebSocket {ws_client.url}",
                 LogColor.BLUE,

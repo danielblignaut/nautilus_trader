@@ -13,8 +13,7 @@
 //  limitations under the License.
 // -------------------------------------------------------------------------------------------------
 
-use std::collections::HashMap;
-
+use ahash::AHashMap;
 use derive_builder::Builder;
 use nautilus_model::{
     data::{
@@ -330,6 +329,9 @@ pub enum HyperliquidWsMessage {
     OrderUpdates { data: Vec<WsOrderData> },
     /// User events.
     UserEvents { data: WsUserEventData },
+    /// Generic user channel (Hyperliquid sends fills/events on this channel).
+    #[serde(rename = "user")]
+    User { data: WsUserEventData },
     /// User fills.
     UserFills { data: WsUserFillsData },
     /// User funding payments.
@@ -374,7 +376,7 @@ pub enum PostResponsePayload {
 /// All mid prices data.
 #[derive(Debug, Clone, Deserialize)]
 pub struct AllMidsData {
-    pub mids: HashMap<String, String>,
+    pub mids: AHashMap<String, String>,
 }
 
 /// Notification data.

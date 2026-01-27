@@ -13,8 +13,9 @@
 //  limitations under the License.
 // -------------------------------------------------------------------------------------------------
 
-use std::{collections::HashMap, fmt::Display, str::FromStr};
+use std::{fmt::Display, str::FromStr};
 
+use ahash::AHashMap;
 use nautilus_core::{UUID4, UnixNanos};
 use nautilus_model::{
     data::{delta::OrderBookDelta, deltas::OrderBookDeltas, order::BookOrder},
@@ -108,14 +109,14 @@ impl HyperliquidInstrumentInfo {
 /// Simple instrument cache for parsing messages and responses
 #[derive(Debug, Default)]
 pub struct HyperliquidInstrumentCache {
-    instruments_by_symbol: HashMap<Ustr, HyperliquidInstrumentInfo>,
+    instruments_by_symbol: AHashMap<Ustr, HyperliquidInstrumentInfo>,
 }
 
 impl HyperliquidInstrumentCache {
     /// Create a new empty cache
     pub fn new() -> Self {
         Self {
-            instruments_by_symbol: HashMap::new(),
+            instruments_by_symbol: AHashMap::new(),
         }
     }
 
@@ -168,7 +169,7 @@ pub enum HyperliquidTradeKey {
 #[derive(Debug)]
 pub struct HyperliquidDataConverter {
     /// Configuration by instrument symbol
-    configs: HashMap<Ustr, HyperliquidInstrumentInfo>,
+    configs: AHashMap<Ustr, HyperliquidInstrumentInfo>,
 }
 
 impl Default for HyperliquidDataConverter {
@@ -181,7 +182,7 @@ impl HyperliquidDataConverter {
     /// Create a new converter
     pub fn new() -> Self {
         Self {
-            configs: HashMap::new(),
+            configs: AHashMap::new(),
         }
     }
 
@@ -640,7 +641,7 @@ impl HyperliquidBalance {
 /// - [User State Info](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint/perpetuals#retrieve-users-perpetuals-account-summary)
 #[derive(Default, Debug)]
 pub struct HyperliquidAccountState {
-    pub balances: HashMap<String, HyperliquidBalance>,
+    pub balances: AHashMap<String, HyperliquidBalance>,
     pub last_sequence: u64,
 }
 
@@ -1209,7 +1210,8 @@ mod tests {
 
         assert!(result.is_ok());
         let (price, qty) = result.unwrap();
-        assert_eq!(price, dec!(50123.45)); // rounded down to tick size
+        // Price is first rounded to 5 sig figs (50123), then to tick size
+        assert_eq!(price, dec!(50123.00));
         assert_eq!(qty, dec!(0.12345)); // rounded down to step size
 
         // Test with symbol not configured (should use defaults)

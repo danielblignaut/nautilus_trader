@@ -168,7 +168,7 @@ impl HyperliquidExecutionClient {
         ))
         .context("failed to create secrets from private key")?;
 
-        let http_client = HyperliquidHttpClient::with_credentials(
+        let http_client = HyperliquidHttpClient::with_secrets(
             &secrets,
             Some(config.http_timeout_secs),
             config.http_proxy_url.clone(),
@@ -1044,8 +1044,23 @@ impl HyperliquidExecutionClient {
                                 }
                             }
                             NautilusWsMessage::Reconnected => {
-                                log::info!("WebSocket reconnected");
-                                // TODO: Resubscribe to user channels if needed
+                                log::info!("WebSocket reconnected, resubscribing to user channels");
+
+                                if let Err(e) = ws_client.subscribe_order_updates(&user_address).await
+                                {
+                                    log::error!(
+                                        "Failed to resubscribe to order updates after reconnect: {e}"
+                                    );
+                                }
+
+                                if let Err(e) = ws_client.subscribe_user_events(&user_address).await
+                                {
+                                    log::error!(
+                                        "Failed to resubscribe to user events after reconnect: {e}"
+                                    );
+                                }
+
+                                log::info!("Resubscribed to execution channels");
                             }
                             NautilusWsMessage::Error(e) => {
                                 log::error!("WebSocket error: {e}");
