@@ -27,6 +27,10 @@ pub struct OrderMatchingEngineConfig {
     pub use_reduce_only: bool,
     pub use_market_order_acks: bool,
     pub price_protection_points: Option<u32>,
+    /// Whether to defer order events to avoid RefCell re-borrow panics in backtest mode.
+    /// When enabled, order events (including fills) are queued and sent after the current
+    /// processing iteration completes, preventing borrow conflicts.
+    pub defer_order_events: bool,
 }
 
 impl OrderMatchingEngineConfig {
@@ -57,6 +61,7 @@ impl OrderMatchingEngineConfig {
             use_reduce_only,
             use_market_order_acks,
             price_protection_points: None,
+            defer_order_events: false,
         }
     }
 
@@ -67,6 +72,13 @@ impl OrderMatchingEngineConfig {
         price_protection_points: Option<u32>,
     ) -> Self {
         self.price_protection_points = price_protection_points;
+        self
+    }
+
+    /// Sets whether to defer order events to avoid RefCell re-borrow panics.
+    #[must_use]
+    pub const fn with_defer_order_events(mut self, defer_order_events: bool) -> Self {
+        self.defer_order_events = defer_order_events;
         self
     }
 }
@@ -87,6 +99,7 @@ impl Default for OrderMatchingEngineConfig {
             use_reduce_only: false,
             use_market_order_acks: false,
             price_protection_points: None,
+            defer_order_events: false,
         }
     }
 }

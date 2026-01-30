@@ -65,6 +65,15 @@ pub fn drain_deferred_order_events() {
     }
 }
 
+/// Add an order event to the deferred queue.
+///
+/// This is used by matching engines to avoid RefCell re-borrow panics
+/// during backtest execution. Events are queued and sent after the current
+/// processing iteration completes.
+pub fn defer_order_event(event: OrderEventAny) {
+    DEFERRED_ORDER_EVENTS.with(|q| q.borrow_mut().push_back(event));
+}
+
 /// Execution client implementation for backtesting trading operations.
 ///
 /// The `BacktestExecutionClient` provides an execution client interface for

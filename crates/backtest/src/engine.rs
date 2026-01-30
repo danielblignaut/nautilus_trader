@@ -30,16 +30,18 @@ use std::{
 
 use ahash::AHashMap;
 use nautilus_common::{
-    actor::DataActor, clock::TestClock, component::Component, timer::TimeEventHandler,
-    runner::{
-        SyncDataCommandSender, set_data_cmd_sender,
-        set_time_event_sender, set_exec_cmd_sender,
-        TimeEventSender, TradingCommandSender,
-    },
+    actor::DataActor,
+    clock::TestClock,
+    component::Component,
     messages::execution::TradingCommand,
     msgbus::{self, MessagingSwitchboard},
+    runner::{
+        set_data_cmd_sender, set_exec_cmd_sender, set_time_event_sender, SyncDataCommandSender,
+        TimeEventSender, TradingCommandSender,
+    },
+    timer::TimeEventHandler,
 };
-use nautilus_core::{UUID4, UnixNanos};
+use nautilus_core::{UnixNanos, UUID4};
 use nautilus_data::client::DataClientAdapter;
 use nautilus_execution::models::{fee::FeeModelAny, fill::FillModel, latency::LatencyModel};
 use nautilus_model::{
@@ -476,11 +478,7 @@ impl BacktestEngine {
     /// # Errors
     ///
     /// Returns an error if no data has been loaded or if engine initialization fails.
-    pub fn run(
-        &mut self,
-        start: Option<UnixNanos>,
-        end: Option<UnixNanos>,
-    ) -> anyhow::Result<()> {
+    pub fn run(&mut self, start: Option<UnixNanos>, end: Option<UnixNanos>) -> anyhow::Result<()> {
         anyhow::ensure!(!self.data.is_empty(), "No data to run backtest");
 
         let start_ns = start.unwrap_or_else(|| self.data.first().unwrap().ts_init());
@@ -555,14 +553,16 @@ impl BacktestEngine {
 
             // Clone data for the data engine (process_data takes ownership)
             let data_owned = self.data[self.index].clone();
-            self.kernel.data_engine.borrow_mut().process_data(data_owned);
+            self.kernel
+                .data_engine
+                .borrow_mut()
+                .process_data(data_owned);
 
             // Drain deferred order events before exchange processing
             // (OrderSubmitted must be applied before exchange can fill orders)
             crate::execution_client::drain_deferred_order_events();
 
-            // Process exchange queues (catch account/margin panics for graceful termination)
-            let mut account_blowup = false;
+            // Process exchange queues (catch RefCell borrow panics and propagate as errors)
             for exchange in self.venues.values() {
                 let exchange_ref = Rc::clone(exchange);
                 let result = catch_unwind(AssertUnwindSafe(|| {
@@ -576,13 +576,11 @@ impl BacktestEngine {
                     } else {
                         "unknown panic".to_string()
                     };
-                    log::warn!("Account error during exchange processing, terminating backtest early: {msg}");
-                    account_blowup = true;
-                    break;
+                    log::error!("FATAL: RefCell borrowing panic in exchange processing: {msg}");
+                    return Err(anyhow::anyhow!(
+                        "Backtest terminated due to RefCell borrowing panic: {msg}"
+                    ));
                 }
-            }
-            if account_blowup {
-                break;
             }
 
             // Drain any new deferred events from exchange processing
@@ -764,7 +762,7 @@ mod tests {
         enums::{AccountType, BookType, OmsType},
         identifiers::{ClientId, Venue},
         instruments::{
-            CryptoPerpetual, Instrument, InstrumentAny, stubs::crypto_perpetual_ethusdt,
+            stubs::crypto_perpetual_ethusdt, CryptoPerpetual, Instrument, InstrumentAny,
         },
         types::Money,
     };
@@ -824,12 +822,10 @@ mod tests {
         assert!(engine.venues.contains_key(&venue));
 
         // Check the instrument has been added
-        assert!(
-            engine
-                .venues
-                .get(&venue)
-                .is_some_and(|venue| venue.borrow().get_matching_engine(&instrument_id).is_some())
-        );
+        assert!(engine
+            .venues
+            .get(&venue)
+            .is_some_and(|venue| venue.borrow().get_matching_engine(&instrument_id).is_some()));
         assert_eq!(
             engine
                 .kernel
@@ -839,13 +835,11 @@ mod tests {
                 .len(),
             1
         );
-        assert!(
-            engine
-                .kernel
-                .data_engine
-                .borrow()
-                .registered_clients()
-                .contains(&client_id)
-        );
+        assert!(engine
+            .kernel
+            .data_engine
+            .borrow()
+            .registered_clients()
+            .contains(&client_id));
     }
 }

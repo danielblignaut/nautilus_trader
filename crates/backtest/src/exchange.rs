@@ -31,8 +31,8 @@ use nautilus_common::{
     cache::Cache, clients::ExecutionClient, clock::Clock, messages::execution::TradingCommand,
 };
 use nautilus_core::{
+    correctness::{check_equal, FAILED},
     UnixNanos,
-    correctness::{FAILED, check_equal},
 };
 use nautilus_execution::{
     matching_core::OrderMatchInfo,
@@ -307,7 +307,7 @@ impl SimulatedExchange {
         )
         .with_price_protection_points(price_protection);
         let instrument_id = instrument.id();
-        let matching_engine = OrderMatchingEngine::new(
+        let mut matching_engine = OrderMatchingEngine::new(
             instrument,
             self.instruments.len() as u32,
             self.fill_model.clone(),
@@ -319,6 +319,10 @@ impl SimulatedExchange {
             Rc::clone(&self.cache),
             matching_engine_config,
         );
+        // Set up deferred event sending to avoid RefCell re-borrow panics during backtest
+        matching_engine.set_event_sender(|event| {
+            crate::execution_client::defer_order_event(event);
+        });
         self.matching_engines.insert(instrument_id, matching_engine);
 
         log::info!("Added instrument {instrument_id} and created matching engine");
@@ -837,7 +841,7 @@ mod tests {
         messages::execution::{SubmitOrder, TradingCommand},
         msgbus::{self, stubs::get_typed_message_saving_handler},
     };
-    use nautilus_core::{UUID4, UnixNanos};
+    use nautilus_core::{UnixNanos, UUID4};
     use nautilus_execution::models::{
         fee::{FeeModelAny, MakerTakerFeeModel},
         fill::FillModel,
@@ -857,7 +861,7 @@ mod tests {
         identifiers::{
             AccountId, ClientOrderId, InstrumentId, StrategyId, TradeId, TraderId, Venue,
         },
-        instruments::{CryptoPerpetual, InstrumentAny, stubs::crypto_perpetual_ethusdt},
+        instruments::{stubs::crypto_perpetual_ethusdt, CryptoPerpetual, InstrumentAny},
         orders::{Order, OrderAny, OrderTestBuilder},
         stubs::TestDefault,
         types::{AccountBalance, Currency, Money, Price, Quantity},

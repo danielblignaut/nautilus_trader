@@ -1460,18 +1460,30 @@ impl ExecutionEngine {
             {
                 let position_id = pos.id;
                 for client_order_id in order.linked_order_ids().unwrap_or_default() {
-                    let mut cache = self.cache.borrow_mut();
-                    let contingent_order = cache.mut_order(client_order_id);
-                    if let Some(contingent_order) = contingent_order
-                        && contingent_order.position_id().is_none()
-                    {
-                        contingent_order.set_position_id(Some(position_id));
+                    // Collect data from first borrow scope
+                    let position_update = {
+                        let mut cache = self.cache.borrow_mut();
+                        let contingent_order = cache.mut_order(client_order_id);
+                        if let Some(contingent_order) = contingent_order
+                            && contingent_order.position_id().is_none()
+                        {
+                            let venue = contingent_order.instrument_id().venue;
+                            let cid = contingent_order.client_order_id();
+                            let sid = contingent_order.strategy_id();
+                            contingent_order.set_position_id(Some(position_id));
+                            Some((venue, cid, sid))
+                        } else {
+                            None
+                        }
+                    };
 
+                    // Second borrow scope - safe because first borrow is dropped
+                    if let Some((venue, cid, sid)) = position_update {
                         if let Err(e) = self.cache.borrow_mut().add_position_id(
                             &position_id,
-                            &contingent_order.instrument_id().venue,
-                            &contingent_order.client_order_id(),
-                            &contingent_order.strategy_id(),
+                            &venue,
+                            &cid,
+                            &sid,
                         ) {
                             log::error!("Failed to add position ID: {e}");
                         }
