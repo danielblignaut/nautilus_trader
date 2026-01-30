@@ -1585,7 +1585,7 @@ impl Portfolio {
         &self,
         instrument: &InstrumentAny,
         account: &AccountAny,
-        side: OrderSide,
+        _side: OrderSide,
     ) -> Option<f64> {
         if !self.config.convert_to_account_base_currency {
             return Some(1.0); // No conversion needed
@@ -1600,17 +1600,11 @@ impl Portfolio {
                     return cache.get_mark_xrate(instrument.settlement_currency(), base_currency);
                 }
 
-                let price_type = if side == OrderSide::Buy {
-                    PriceType::Bid
-                } else {
-                    PriceType::Ask
-                };
-
                 cache.get_xrate(
                     instrument.id().venue,
                     instrument.settlement_currency(),
                     base_currency,
-                    price_type,
+                    PriceType::Mid,
                 )
             }
         }
@@ -1741,7 +1735,7 @@ fn update_order(
     cache: Rc<RefCell<Cache>>,
     clock: Rc<RefCell<dyn Clock>>,
     inner: Rc<RefCell<PortfolioState>>,
-    _config: PortfolioConfig,
+    config: PortfolioConfig,
     event: &OrderEventAny,
 ) {
     let cache_ref = cache.borrow();
@@ -1780,6 +1774,7 @@ fn update_order(
     match event {
         OrderEventAny::Accepted(_)
         | OrderEventAny::Canceled(_)
+        | OrderEventAny::Expired(_)
         | OrderEventAny::Rejected(_)
         | OrderEventAny::Updated(_)
         | OrderEventAny::Filled(_) => {}
@@ -1824,7 +1819,7 @@ fn update_order(
             clock: clock.clone(),
             cache: cache.clone(),
             inner: inner.clone(),
-            config: PortfolioConfig::default(), // TODO: TBD
+            config,
         };
 
         match portfolio_clone.calculate_unrealized_pnl(&order_filled.instrument_id) {

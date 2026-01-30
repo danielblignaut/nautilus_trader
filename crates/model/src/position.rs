@@ -274,8 +274,15 @@ impl Position {
     /// Panics if a true duplicate fill (same trade_id, side, price, and qty) is applied.
     pub fn apply(&mut self, fill: &OrderFilled) {
         self.check_duplicate_trade_id(fill);
-        check_predicate_true(fill.ts_event >= self.ts_opened, "fill.ts_event < ts_opened")
-            .expect(FAILED);
+        // OP-5: Log warning instead of panicking on out-of-order timestamps (common during reconciliation)
+        if fill.ts_event < self.ts_opened {
+            log::warn!(
+                "Fill ts_event ({}) < position ts_opened ({}) for {} — accepting for reconciliation",
+                fill.ts_event,
+                self.ts_opened,
+                self.id,
+            );
+        }
 
         if self.side == PositionSide::Flat {
             // Reopening position after close

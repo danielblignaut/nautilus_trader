@@ -1004,13 +1004,29 @@ pub fn create_inferred_fill(
         return None;
     };
 
+    // RC-1: Use incremental quantity (delta) not total filled quantity
+    let last_qty = Quantity::from_raw(
+        (report.filled_qty.raw - order.filled_qty().raw).max(0),
+        report.filled_qty.precision,
+    );
+
+    if last_qty.raw == 0 {
+        log::warn!(
+            "Cannot create inferred fill for {}: incremental qty is zero (order filled_qty={}, report filled_qty={})",
+            order.client_order_id(),
+            order.filled_qty(),
+            report.filled_qty,
+        );
+        return None;
+    }
+
     let trade_id = TradeId::from(UUID4::new().as_str());
 
     log::info!(
         "Generated inferred fill for {} ({}) qty={} px={}",
         order.client_order_id(),
         report.venue_order_id,
-        report.filled_qty,
+        last_qty,
         last_px,
     );
 
@@ -1024,7 +1040,7 @@ pub fn create_inferred_fill(
         trade_id,
         report.order_side,
         order.order_type(),
-        report.filled_qty,
+        last_qty,
         last_px,
         instrument.quote_currency(),
         liquidity_side,
