@@ -1694,4 +1694,46 @@ mod tests {
         assert!(events.is_empty());
         assert_eq!(*test_clock.timestamp_ns(), *start + 1000);
     }
+
+    #[rstest]
+    fn test_set_time_advances_clock(mut test_clock: TestClock) {
+        // Verify initial time is zero
+        assert_eq!(test_clock.timestamp_ns(), UnixNanos::default());
+
+        // Set time to a specific value
+        let target_time = UnixNanos::from(1_000_000_000u64);
+        test_clock.set_time(target_time);
+        assert_eq!(test_clock.timestamp_ns(), target_time);
+
+        // Set time forward again
+        let later_time = UnixNanos::from(2_000_000_000u64);
+        test_clock.set_time(later_time);
+        assert_eq!(test_clock.timestamp_ns(), later_time);
+
+        // Verify derived timestamps are consistent
+        assert_eq!(test_clock.timestamp_us(), 2_000_000);
+        assert_eq!(test_clock.timestamp_ms(), 2_000);
+    }
+
+    #[rstest]
+    fn test_set_time_used_by_timers(mut test_clock: TestClock) {
+        // Simulate exchange advancing clock via set_time before processing orders
+        let initial_time = UnixNanos::from(1_000_000u64);
+        test_clock.set_time(initial_time);
+
+        // Register a timer relative to the new time
+        test_clock
+            .set_time_alert_ns(
+                "order_event",
+                UnixNanos::from(1_001_000u64),
+                None,
+                None,
+            )
+            .unwrap();
+
+        // Advance clock (as exchange.process() would)
+        let events = test_clock.advance_time(UnixNanos::from(1_001_000u64), true);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].name.as_str(), "order_event");
+    }
 }

@@ -311,7 +311,7 @@ impl Cache {
             None => AHashMap::new(),
         };
 
-        log::info!("Cached {} orders from database", self.general.len());
+        log::info!("Cached {} orders from database", self.orders.len());
         Ok(())
     }
 
@@ -326,7 +326,7 @@ impl Cache {
             None => AHashMap::new(),
         };
 
-        log::info!("Cached {} positions from database", self.general.len());
+        log::info!("Cached {} positions from database", self.positions.len());
         Ok(())
     }
 
