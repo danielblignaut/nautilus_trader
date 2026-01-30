@@ -598,6 +598,7 @@ impl BacktestEngine {
 
         self.run_finished = Some(self.kernel.clock.borrow().timestamp_ns());
         self.log_post_run();
+        self.end()?;
         Ok(())
     }
 

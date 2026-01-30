@@ -624,30 +624,53 @@ impl OrderMatchingEngine {
             self.core.set_last_raw(trade_tick.price);
         }
 
-        // High: fill at trigger price (market moving through prices)
-        if self.core.last.is_some_and(|last| bar.high > last) {
-            self.fill_at_market = false;
-            trade_tick.price = bar.high;
-            trade_tick.aggressor_side = AggressorSide::Buyer;
-            trade_tick.trade_id = self.ids_generator.generate_trade_id();
+        // Adaptive High/Low ordering based on bar direction (ME-8)
+        // Bullish bar (close >= open): O-L-H-C (low first, price dips then rallies)
+        // Bearish bar (close < open): O-H-L-C (high first, price rallies then dips)
+        let bullish = bar.close >= bar.open;
 
-            self.book.update_trade_tick(&trade_tick).unwrap();
-            self.iterate(trade_tick.ts_init, AggressorSide::NoAggressor);
-
-            self.core.set_last_raw(trade_tick.price);
-        }
-
-        // Low: fill at trigger price (market moving through prices)
-        if self.core.last.is_some_and(|last| bar.low < last) {
-            self.fill_at_market = false;
-            trade_tick.price = bar.low;
-            trade_tick.aggressor_side = AggressorSide::Seller;
-            trade_tick.trade_id = self.ids_generator.generate_trade_id();
-
-            self.book.update_trade_tick(&trade_tick).unwrap();
-            self.iterate(trade_tick.ts_init, AggressorSide::NoAggressor);
-
-            self.core.set_last_raw(trade_tick.price);
+        if bullish {
+            // Low first
+            if self.core.last.is_some_and(|last| bar.low < last) {
+                self.fill_at_market = false;
+                trade_tick.price = bar.low;
+                trade_tick.aggressor_side = AggressorSide::Seller;
+                trade_tick.trade_id = self.ids_generator.generate_trade_id();
+                self.book.update_trade_tick(&trade_tick).unwrap();
+                self.iterate(trade_tick.ts_init, AggressorSide::NoAggressor);
+                self.core.set_last_raw(trade_tick.price);
+            }
+            // Then high
+            if self.core.last.is_some_and(|last| bar.high > last) {
+                self.fill_at_market = false;
+                trade_tick.price = bar.high;
+                trade_tick.aggressor_side = AggressorSide::Buyer;
+                trade_tick.trade_id = self.ids_generator.generate_trade_id();
+                self.book.update_trade_tick(&trade_tick).unwrap();
+                self.iterate(trade_tick.ts_init, AggressorSide::NoAggressor);
+                self.core.set_last_raw(trade_tick.price);
+            }
+        } else {
+            // High first
+            if self.core.last.is_some_and(|last| bar.high > last) {
+                self.fill_at_market = false;
+                trade_tick.price = bar.high;
+                trade_tick.aggressor_side = AggressorSide::Buyer;
+                trade_tick.trade_id = self.ids_generator.generate_trade_id();
+                self.book.update_trade_tick(&trade_tick).unwrap();
+                self.iterate(trade_tick.ts_init, AggressorSide::NoAggressor);
+                self.core.set_last_raw(trade_tick.price);
+            }
+            // Then low
+            if self.core.last.is_some_and(|last| bar.low < last) {
+                self.fill_at_market = false;
+                trade_tick.price = bar.low;
+                trade_tick.aggressor_side = AggressorSide::Seller;
+                trade_tick.trade_id = self.ids_generator.generate_trade_id();
+                self.book.update_trade_tick(&trade_tick).unwrap();
+                self.iterate(trade_tick.ts_init, AggressorSide::NoAggressor);
+                self.core.set_last_raw(trade_tick.price);
+            }
         }
 
         // Close: fill at trigger price (market moving through prices)

@@ -72,6 +72,18 @@ impl OrderMatchInfo {
     pub const fn is_limit(&self) -> bool {
         self.limit_price.is_some() && self.trigger_price.is_none()
     }
+
+    /// Returns the raw price value used for sorting (limit price, then trigger price, then max).
+    #[must_use]
+    pub fn sort_price_raw(&self) -> i128 {
+        if let Some(p) = self.limit_price {
+            p.raw
+        } else if let Some(p) = self.trigger_price {
+            p.raw
+        } else {
+            i128::MAX
+        }
+    }
 }
 
 impl From<&PassiveOrderAny> for OrderMatchInfo {
@@ -249,11 +261,21 @@ impl OrderMatchingCore {
         self.orders_ask.clear();
     }
 
-    /// Adds an order to the matching core.
+    /// Adds an order to the matching core, maintaining price-priority order.
     pub fn add_order(&mut self, order: OrderMatchInfo) {
         match order.order_side {
-            OrderSideSpecified::Buy => self.orders_bid.push(order),
-            OrderSideSpecified::Sell => self.orders_ask.push(order),
+            OrderSideSpecified::Buy => {
+                self.orders_bid.push(order);
+                // Sort bids descending by price (best bid first)
+                self.orders_bid
+                    .sort_by(|a, b| b.sort_price_raw().cmp(&a.sort_price_raw()));
+            }
+            OrderSideSpecified::Sell => {
+                self.orders_ask.push(order);
+                // Sort asks ascending by price (best ask first)
+                self.orders_ask
+                    .sort_by(|a, b| a.sort_price_raw().cmp(&b.sort_price_raw()));
+            }
         }
     }
 

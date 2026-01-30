@@ -466,12 +466,7 @@ pub trait Order: 'static + Send {
     }
 
     fn is_inflight(&self) -> bool {
-        if let Some(emulation_trigger) = self.emulation_trigger()
-            && emulation_trigger != TriggerType::NoTrigger
-        {
-            return false;
-        }
-
+        // OP-3: Emulated SUBMITTED orders are also considered inflight (matching Python)
         matches!(
             self.status(),
             OrderStatus::Submitted | OrderStatus::PendingCancel | OrderStatus::PendingUpdate

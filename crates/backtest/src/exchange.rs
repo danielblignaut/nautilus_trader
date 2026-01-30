@@ -49,6 +49,7 @@ use nautilus_model::{
     identifiers::{InstrumentId, Venue},
     instruments::{Instrument, InstrumentAny},
     orderbook::OrderBook,
+    orders::Order,
     types::{AccountBalance, Currency, Money, Price},
 };
 use rust_decimal::Decimal;
@@ -717,20 +718,29 @@ impl SimulatedExchange {
     pub fn process(&mut self, ts_now: UnixNanos) {
         self.clock.borrow_mut().set_time(ts_now);
 
-        // Process inflight commands
+        // Move expired inflight commands to front of message queue (BE-10/NEW-BE-18)
+        // This matches Python's FIFO interleaving behavior
+        let mut inflight_commands = Vec::new();
         while let Some(inflight) = self.inflight_queue.peek() {
             if inflight.timestamp > ts_now {
-                // Future commands remain in the queue
                 break;
             }
-            // We get the inflight command, remove it from the queue and process it
             let inflight = self.inflight_queue.pop().unwrap();
-            self.process_trading_command(inflight.command);
+            inflight_commands.push(inflight.command);
+        }
+        // Prepend inflight commands to message queue
+        for command in inflight_commands.into_iter().rev() {
+            self.message_queue.push_front(command);
         }
 
-        // Process regular message queue
+        // Process merged message queue
         while let Some(command) = self.message_queue.pop_front() {
             self.process_trading_command(command);
+        }
+
+        // Process simulation modules (BE-5/NEW-BE-12)
+        for module in &self.modules {
+            module.process(ts_now);
         }
     }
 
@@ -770,7 +780,24 @@ impl SimulatedExchange {
                     matching_engine.process_order(&mut order, account_id);
                 }
                 TradingCommand::ModifyOrder(ref command) => {
-                    matching_engine.process_modify(command, account_id);
+                    // BE-4/NEW-BE-21: Check order status before routing to matching engine.
+                    // SUBMITTED orders are not yet known to the matching engine.
+                    let order_status = self
+                        .cache
+                        .borrow()
+                        .order(&command.client_order_id)
+                        .map(|o| o.status());
+                    if order_status == Some(nautilus_model::enums::OrderStatus::Submitted) {
+                        log::debug!(
+                            "ModifyOrder for SUBMITTED order {} deferred to message queue",
+                            command.client_order_id
+                        );
+                        // Re-queue for next processing cycle when order may be accepted
+                        self.message_queue
+                            .push_back(TradingCommand::ModifyOrder(command.clone()));
+                    } else {
+                        matching_engine.process_modify(command, account_id);
+                    }
                 }
                 TradingCommand::CancelOrder(ref command) => {
                     matching_engine.process_cancel(command, account_id);
