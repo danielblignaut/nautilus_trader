@@ -570,6 +570,7 @@ impl RiskEngine {
         match self.trading_state {
             TradingState::Halted => {
                 self.reject_modify_order(order, "TradingState is HALTED: Cannot modify order");
+                return; // Denied
             }
             TradingState::Reducing => {
                 if let Some(quantity) = command.quantity
@@ -584,6 +585,7 @@ impl RiskEngine {
                             instrument.id()
                         ),
                     );
+                    return; // Denied
                 }
             }
             _ => {}
@@ -678,6 +680,7 @@ impl RiskEngine {
         let cash_account = match account {
             AccountAny::Cash(cash_account) => cash_account,
             AccountAny::Margin(_) => return true, // TODO: Determine risk controls for margin
+            AccountAny::Betting(_) => return true, // TODO: Determine risk controls for betting
         };
         let free = cash_account.balance_free(Some(instrument.quote_currency()));
         let allow_borrowing = cash_account.allow_borrowing;
@@ -1310,6 +1313,7 @@ impl RiskEngine {
                                     instrument.id()
                                 ),
                             );
+                            return;
                         } else if order.is_sell() && self.portfolio.is_net_short(&instrument.id()) {
                             self.deny_order(
                                 order,
@@ -1318,15 +1322,18 @@ impl RiskEngine {
                                     instrument.id()
                                 ),
                             );
+                            return;
                         }
                     }
+                    // Order is reducing — send to execution
+                    self.send_to_execution(TradingCommand::SubmitOrder(submit_order));
                 }
                 TradingCommand::SubmitOrderList(submit_order_list) => {
-                    let order_list = submit_order_list.order_list;
+                    let order_list = &submit_order_list.order_list;
                     for order in &order_list.orders {
                         if order.is_buy() && self.portfolio.is_net_long(&instrument.id()) {
                             self.deny_order_list(
-                                order_list,
+                                submit_order_list.order_list,
                                 &format!(
                                     "BUY when TradingState::REDUCING and LONG {}",
                                     instrument.id()
@@ -1335,7 +1342,7 @@ impl RiskEngine {
                             return;
                         } else if order.is_sell() && self.portfolio.is_net_short(&instrument.id()) {
                             self.deny_order_list(
-                                order_list,
+                                submit_order_list.order_list,
                                 &format!(
                                     "SELL when TradingState::REDUCING and SHORT {}",
                                     instrument.id()
@@ -1344,6 +1351,8 @@ impl RiskEngine {
                             return;
                         }
                     }
+                    // All orders are reducing — send to execution
+                    self.send_to_execution(TradingCommand::SubmitOrderList(submit_order_list));
                 }
                 _ => {}
             },

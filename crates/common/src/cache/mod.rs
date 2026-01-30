@@ -53,6 +53,7 @@ use nautilus_model::{
         TradeTick, YieldCurveData,
     },
     enums::{AggregationSource, OmsType, OrderSide, PositionSide, PriceType, TriggerType},
+    events::order::any::OrderEventAny,
     identifiers::{
         AccountId, ClientId, ClientOrderId, ComponentId, ExecAlgorithmId, InstrumentId,
         OrderListId, PositionId, StrategyId, Venue, VenueOrderId,
@@ -244,7 +245,7 @@ impl Cache {
             None => AHashMap::new(),
         };
 
-        log::info!("Cached {} currencies from database", self.general.len());
+        log::info!("Cached {} currencies from database", self.currencies.len());
         Ok(())
     }
 
@@ -259,7 +260,7 @@ impl Cache {
             None => AHashMap::new(),
         };
 
-        log::info!("Cached {} instruments from database", self.general.len());
+        log::info!("Cached {} instruments from database", self.instruments.len());
         Ok(())
     }
 
@@ -276,7 +277,7 @@ impl Cache {
 
         log::info!(
             "Cached {} synthetic instruments from database",
-            self.general.len()
+            self.synthetics.len()
         );
         Ok(())
     }
@@ -293,8 +294,8 @@ impl Cache {
         };
 
         log::info!(
-            "Cached {} synthetic instruments from database",
-            self.general.len()
+            "Cached {} accounts from database",
+            self.accounts.len()
         );
         Ok(())
     }
@@ -2013,8 +2014,8 @@ impl Cache {
             // If the order is being modified then we allow a changing `VenueOrderId` to accommodate
             // venues which use a cancel+replace update strategy.
             if !self.index.venue_order_ids.contains_key(&venue_order_id) {
-                // TODO: If the last event was `OrderUpdated` then overwrite should be true
-                self.add_venue_order_id(&order.client_order_id(), &venue_order_id, false)?;
+                let overwrite = matches!(order.last_event(), OrderEventAny::Updated(_));
+                self.add_venue_order_id(&order.client_order_id(), &venue_order_id, overwrite)?;
             }
         }
 
@@ -2055,8 +2056,8 @@ impl Cache {
         }
 
         // Update own book
-        if self.own_order_book(&order.instrument_id()).is_some()
-            && should_handle_own_book_order(order)
+        if (self.own_order_book(&order.instrument_id()).is_some() && order.is_closed())
+            || should_handle_own_book_order(order)
         {
             self.update_own_order_book(order);
         }
@@ -2175,8 +2176,7 @@ impl Cache {
             );
         }
 
-        // Ok(())
-        todo!()
+        Ok(())
     }
 
     /// Gets the OMS type for the `position_id`.

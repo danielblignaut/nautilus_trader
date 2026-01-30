@@ -336,7 +336,7 @@ impl Portfolio {
             },
             |account| match account {
                 AccountAny::Margin(margin_account) => margin_account.initial_margins(),
-                AccountAny::Cash(_) => {
+                AccountAny::Cash(_) | AccountAny::Betting(_) => {
                     log::warn!("Initial margins not applicable for cash account");
                     AHashMap::new()
                 }
@@ -358,7 +358,7 @@ impl Portfolio {
             },
             |account| match account {
                 AccountAny::Margin(margin_account) => margin_account.maintenance_margins(),
-                AccountAny::Cash(_) => {
+                AccountAny::Cash(_) | AccountAny::Betting(_) => {
                     log::warn!("Maintenance margins not applicable for cash account");
                     AHashMap::new()
                 }
@@ -903,7 +903,7 @@ impl Portfolio {
             };
 
             let account = match account {
-                AccountAny::Cash(_) => continue,
+                AccountAny::Cash(_) | AccountAny::Betting(_) => continue,
                 AccountAny::Margin(margin_account) => margin_account,
             };
 
@@ -1566,7 +1566,7 @@ impl Portfolio {
         let price_type = match position.side {
             PositionSide::Long => PriceType::Bid,
             PositionSide::Short => PriceType::Ask,
-            _ => panic!("invalid `PositionSide`, was {}", position.side),
+            _ => PriceType::Last,
         };
 
         cache
@@ -1770,6 +1770,11 @@ fn update_order(
                 return;
             }
         }
+        AccountAny::Betting(betting_account) => {
+            if !betting_account.base.calculate_account_state {
+                return;
+            }
+        }
     }
 
     match event {
@@ -1808,8 +1813,8 @@ fn update_order(
         return;
     };
 
-    if let OrderEventAny::Filled(order_filled) = event {
-        let _ = inner.borrow().accounts.update_balances(
+    let updated_account = if let OrderEventAny::Filled(order_filled) = event {
+        let (updated_account, _account_state) = inner.borrow().accounts.update_balances(
             account.clone(),
             instrument.clone(),
             *order_filled,
@@ -1836,19 +1841,23 @@ fn update_order(
                 );
             }
         }
-    }
+
+        updated_account
+    } else {
+        account.clone()
+    };
 
     let orders_open = cache_ref.orders_open(None, Some(&event.instrument_id()), None, None, None);
 
     let account_state = inner.borrow_mut().accounts.update_orders(
-        account,
+        &updated_account,
         instrument.clone(),
         orders_open,
         clock.borrow().timestamp_ns(),
     );
 
     let mut cache_ref = cache.borrow_mut();
-    cache_ref.update_account(account.clone()).unwrap();
+    cache_ref.update_account(updated_account).unwrap();
 
     if let Some((_, account_state)) = account_state {
         msgbus::publish_account_state(

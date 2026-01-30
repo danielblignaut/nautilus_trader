@@ -220,8 +220,8 @@ impl SimulatedExchange {
             inflight_queue: BinaryHeap::new(),
             inflight_counter: AHashMap::new(),
             bar_execution: bar_execution.unwrap_or(true),
-            trade_execution: trade_execution.unwrap_or(true),
-            liquidity_consumption: liquidity_consumption.unwrap_or(true),
+            trade_execution: trade_execution.unwrap_or(false),
+            liquidity_consumption: liquidity_consumption.unwrap_or(false),
             reject_stop_orders: reject_stop_orders.unwrap_or(true),
             support_gtd_orders: support_gtd_orders.unwrap_or(true),
             support_contingent_orders: support_contingent_orders.unwrap_or(true),
@@ -711,7 +711,7 @@ impl SimulatedExchange {
     ///
     /// Panics if popping an inflight command fails during processing.
     pub fn process(&mut self, ts_now: UnixNanos) {
-        // TODO implement correct clock fixed time setting self.clock.set_time(ts_now);
+        self.clock.borrow_mut().set_time(ts_now);
 
         // Process inflight commands
         while let Some(inflight) = self.inflight_queue.peek() {
@@ -808,7 +808,7 @@ impl SimulatedExchange {
                 .unwrap();
         }
 
-        // Set leverages
+        // Set leverages and persist back to cache
         if let Some(AccountAny::Margin(mut margin_account)) = self.get_account() {
             margin_account.set_default_leverage(self.default_leverage);
 
@@ -816,6 +816,12 @@ impl SimulatedExchange {
             for (instrument_id, leverage) in &self.leverages {
                 margin_account.set_leverage(*instrument_id, *leverage);
             }
+
+            // Write updated account back to cache so leverage settings persist
+            self.cache
+                .borrow_mut()
+                .update_account(AccountAny::Margin(margin_account))
+                .expect("Failed to update account with leverage settings");
         }
     }
 }

@@ -19,7 +19,7 @@ use std::{
 };
 
 use nautilus_core::python::{
-    IntoPyObjectNautilusExt, serialization::from_dict_pyo3, to_pyvalue_err,
+    serialization::from_dict_pyo3, to_pyvalue_err, IntoPyObjectNautilusExt,
 };
 use pyo3::{basic::CompareOp, prelude::*, types::PyDict};
 use rust_decimal::Decimal;
@@ -342,7 +342,7 @@ mod tests {
     use pyo3::{prelude::*, types::PyDict};
     use rstest::rstest;
 
-    use crate::instruments::{CryptoFuture, stubs::*};
+    use crate::instruments::{stubs::*, CryptoFuture};
 
     #[rstest]
     fn test_dict_round_trip(crypto_future_btcusdt: CryptoFuture) {

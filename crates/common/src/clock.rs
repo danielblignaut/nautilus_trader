@@ -213,6 +213,9 @@ pub trait Clock: Debug + Any {
 
     /// Resets the clock by clearing it's internal state.
     fn reset(&mut self);
+
+    /// Sets the clocks internal time to the given UNIX nanosecond timestamp.
+    fn set_time(&mut self, time: UnixNanos);
 }
 
 impl dyn Clock {
@@ -681,6 +684,10 @@ impl Clock for TestClock {
         self.time = AtomicTime::new(false, UnixNanos::default());
         self.timers = BTreeMap::new();
         self.callbacks.clear();
+    }
+
+    fn set_time(&mut self, time: UnixNanos) {
+        self.time.set_time(time);
     }
 }
 

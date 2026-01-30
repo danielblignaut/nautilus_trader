@@ -88,7 +88,7 @@ pub const LIMIT_ORDER_TYPES: &[OrderType] = &[
     OrderType::Limit,
     OrderType::StopLimit,
     OrderType::LimitIfTouched,
-    OrderType::MarketIfTouched,
+    OrderType::MarketToLimit,
 ];
 
 /// Order statuses for locally active orders (pre-submission to venue).
@@ -828,6 +828,12 @@ impl OrderCore {
         }
 
         self.set_avg_px(event.last_qty, event.last_px);
+
+        if let Some(commission) = event.commission {
+            let currency = commission.currency;
+            let existing = self.commissions.entry(currency).or_insert(Money::new(0.0, currency));
+            *existing = Money::from_raw(existing.raw + commission.raw, currency);
+        }
     }
 
     fn set_avg_px(&mut self, last_qty: Quantity, last_px: Price) {

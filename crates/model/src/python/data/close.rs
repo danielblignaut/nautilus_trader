@@ -14,19 +14,18 @@
 // -------------------------------------------------------------------------------------------------
 
 use std::{
-    collections::{HashMap, hash_map::DefaultHasher},
+    collections::{hash_map::DefaultHasher, HashMap},
     hash::{Hash, Hasher},
 };
 
 use nautilus_core::{
     python::{
-        IntoPyObjectNautilusExt,
         serialization::{from_dict_pyo3, to_dict_pyo3},
-        to_pyvalue_err,
+        to_pyvalue_err, IntoPyObjectNautilusExt,
     },
     serialization::{
-        Serializable,
         msgpack::{FromMsgPack, ToMsgPack},
+        Serializable,
     },
 };
 use pyo3::{basic::CompareOp, exceptions::PyValueError, prelude::*, types::PyDict};

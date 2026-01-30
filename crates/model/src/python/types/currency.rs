@@ -16,7 +16,7 @@
 use std::str::FromStr;
 
 use nautilus_core::python::{to_pyruntime_err, to_pyvalue_err};
-use pyo3::{IntoPyObjectExt, prelude::*};
+use pyo3::{prelude::*, IntoPyObjectExt};
 
 use crate::{enums::CurrencyType, types::Currency};
 

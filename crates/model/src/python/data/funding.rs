@@ -22,12 +22,12 @@ use std::{
 };
 
 use nautilus_core::{
-    UnixNanos,
-    python::{IntoPyObjectNautilusExt, to_pyvalue_err},
+    python::{to_pyvalue_err, IntoPyObjectNautilusExt},
     serialization::{
-        Serializable,
         msgpack::{FromMsgPack, ToMsgPack},
+        Serializable,
     },
+    UnixNanos,
 };
 use pyo3::{
     exceptions::PyKeyError,

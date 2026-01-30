@@ -23,7 +23,7 @@ use nautilus_core::python::{get_pytype_name, to_pytype_err, to_pyvalue_err};
 use pyo3::{basic::CompareOp, conversion::IntoPyObjectExt, prelude::*, types::PyFloat};
 use rust_decimal::{Decimal, RoundingStrategy};
 
-use crate::types::{Quantity, quantity::QuantityRaw};
+use crate::types::{quantity::QuantityRaw, Quantity};
 
 #[pymethods]
 impl Quantity {

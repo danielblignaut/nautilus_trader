@@ -21,10 +21,10 @@ use std::{
 };
 
 use nautilus_core::python::{get_pytype_name, to_pytype_err, to_pyvalue_err};
-use pyo3::{IntoPyObjectExt, basic::CompareOp, prelude::*, types::PyFloat};
+use pyo3::{basic::CompareOp, prelude::*, types::PyFloat, IntoPyObjectExt};
 use rust_decimal::{Decimal, RoundingStrategy};
 
-use crate::types::{Currency, Money, money::MoneyRaw};
+use crate::types::{money::MoneyRaw, Currency, Money};
 
 #[pymethods]
 impl Money {

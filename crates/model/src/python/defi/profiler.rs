@@ -23,8 +23,8 @@ use pyo3::prelude::*;
 
 use crate::{
     defi::{
+        pool_analysis::{quote::SwapQuote, size_estimator::SizeForImpactResult, PoolProfiler},
         Pool,
-        pool_analysis::{PoolProfiler, quote::SwapQuote, size_estimator::SizeForImpactResult},
     },
     identifiers::InstrumentId,
 };

@@ -66,6 +66,10 @@ pub trait NautilusKernelConfig: Debug {
     fn portfolio(&self) -> Option<PortfolioConfig>;
     /// Returns the configuration for streaming to feather files.
     fn streaming(&self) -> Option<StreamingConfig>;
+    /// If logging initialization should be bypassed (useful when a logger is already set).
+    fn bypass_logging(&self) -> bool {
+        false
+    }
 }
 
 /// Basic implementation of `NautilusKernelConfig` for builder and testing.

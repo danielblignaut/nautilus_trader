@@ -18,7 +18,7 @@
 use std::str::FromStr;
 
 use nautilus_core::python::to_pyvalue_err;
-use pyo3::{PyTypeInfo, prelude::*, types::PyType};
+use pyo3::{prelude::*, types::PyType, PyTypeInfo};
 
 use crate::{
     defi::{chain::Blockchain, data::PoolLiquidityUpdateType, dex::AmmType},

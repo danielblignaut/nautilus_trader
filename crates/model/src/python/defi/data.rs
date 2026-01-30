@@ -26,12 +26,12 @@ use pyo3::{basic::CompareOp, prelude::*};
 
 use crate::{
     defi::{
-        Chain, Dex,
         chain::Blockchain,
         data::{
             Block, PoolFeeCollect, PoolFlash, PoolLiquidityUpdate, PoolLiquidityUpdateType,
             PoolSwap, Transaction,
         },
+        Chain, Dex,
     },
     identifiers::InstrumentId,
 };

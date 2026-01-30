@@ -22,7 +22,7 @@ use crate::{
     data::{BookOrder, OrderBookDelta, OrderBookDeltas, OrderBookDepth10, QuoteTick, TradeTick},
     enums::{BookType, OrderSide, OrderStatus},
     identifiers::InstrumentId,
-    orderbook::{BookLevel, OrderBook, analysis::book_check_integrity, own::OwnOrderBook},
+    orderbook::{analysis::book_check_integrity, own::OwnOrderBook, BookLevel, OrderBook},
     types::{Price, Quantity},
 };
 

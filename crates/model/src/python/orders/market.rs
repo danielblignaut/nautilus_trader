@@ -15,21 +15,20 @@
 
 use indexmap::IndexMap;
 use nautilus_core::{
-    UUID4,
     python::{
-        IntoPyObjectNautilusExt,
         parsing::{
             get_optional, get_optional_parsed, get_required, get_required_parsed,
             get_required_string,
         },
-        to_pyruntime_err, to_pyvalue_err,
+        to_pyruntime_err, to_pyvalue_err, IntoPyObjectNautilusExt,
     },
+    UUID4,
 };
 use pyo3::{
-    Bound, Py, PyAny, PyResult, Python,
     basic::CompareOp,
     pymethods,
     types::{PyAnyMethods, PyDict, PyList},
+    Bound, Py, PyAny, PyResult, Python,
 };
 use rust_decimal::Decimal;
 use ustr::Ustr;
@@ -40,7 +39,7 @@ use crate::{
     identifiers::{
         AccountId, ClientOrderId, ExecAlgorithmId, InstrumentId, OrderListId, StrategyId, TraderId,
     },
-    orders::{MarketOrder, Order, OrderCore, str_indexmap_to_ustr},
+    orders::{str_indexmap_to_ustr, MarketOrder, Order, OrderCore},
     python::{
         common::commissions_from_indexmap,
         events::order::{order_event_to_pyobject, pyobject_to_order_event},

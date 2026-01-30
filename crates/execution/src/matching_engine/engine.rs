@@ -372,9 +372,8 @@ impl OrderMatchingEngine {
             }
         }
 
-        if self.book_type == BookType::L2_MBP || self.book_type == BookType::L3_MBO {
-            self.book.apply_delta(delta)?;
-        }
+        // Apply delta to book unconditionally (matches Python behavior)
+        self.book.apply_delta(delta)?;
 
         self.iterate(delta.ts_init, AggressorSide::NoAggressor);
         Ok(())
@@ -412,9 +411,8 @@ impl OrderMatchingEngine {
             }
         }
 
-        if self.book_type == BookType::L2_MBP || self.book_type == BookType::L3_MBO {
-            self.book.apply_deltas(deltas)?;
-        }
+        // Apply deltas to book unconditionally (matches Python behavior)
+        self.book.apply_deltas(deltas)?;
 
         self.iterate(deltas.ts_init, AggressorSide::NoAggressor);
         Ok(())
@@ -800,7 +798,10 @@ impl OrderMatchingEngine {
                         self.core.set_bid_raw(trade.price);
                     }
                 }
-                AggressorSide::NoAggressor => {}
+                AggressorSide::NoAggressor => {
+                    self.core.set_bid_raw(trade.price);
+                    self.core.set_ask_raw(trade.price);
+                }
             }
 
             self.last_trade_size = Some(trade.size);
@@ -934,7 +935,7 @@ impl OrderMatchingEngine {
                             );
                             return;
                         } else if parent_order.status() == OrderStatus::Accepted
-                            && parent_order.status() == OrderStatus::Triggered
+                            || parent_order.status() == OrderStatus::Triggered
                         {
                             log::info!(
                                 "Pending OTO order {} triggers from {parent_order_id}",
@@ -969,8 +970,8 @@ impl OrderMatchingEngine {
                 }
             }
 
-            // Check for valid order quantity precision
-            if order.quantity().precision != self.instrument.size_precision() {
+            // Check for valid order quantity precision (reject if exceeds instrument precision)
+            if order.quantity().precision > self.instrument.size_precision() {
                 self.generate_order_rejected(
                     order,
                     format!(
@@ -987,7 +988,7 @@ impl OrderMatchingEngine {
 
             // Check for valid order price precision
             if let Some(price) = order.price()
-                && price.precision != self.instrument.price_precision()
+                && price.precision > self.instrument.price_precision()
             {
                 self.generate_order_rejected(
                         order,
@@ -1005,7 +1006,7 @@ impl OrderMatchingEngine {
 
             // Check for valid order trigger price precision
             if let Some(trigger_price) = order.trigger_price()
-                && trigger_price.precision != self.instrument.price_precision()
+                && trigger_price.precision > self.instrument.price_precision()
             {
                 self.generate_order_rejected(
                         order,
@@ -1785,8 +1786,10 @@ impl OrderMatchingEngine {
 
         // Restore core bid/ask to book values after order iteration
         // (during trade execution, transient override was used for matching)
-        self.core.bid = self.book.best_bid_price();
-        self.core.ask = self.book.best_ask_price();
+        if !self.config.trade_execution {
+            self.core.bid = self.book.best_bid_price();
+            self.core.ask = self.book.best_ask_price();
+        }
     }
 
     fn maybe_activate_trailing_stop(
@@ -2383,6 +2386,7 @@ impl OrderMatchingEngine {
         };
 
         let mut initial_market_to_limit_fill = false;
+        let mut last_fill_px: Option<Price> = None;
 
         for &(mut fill_px, ref fill_qty) in &fills {
             assert!(
@@ -2455,6 +2459,8 @@ impl OrderMatchingEngine {
                 return;
             }
 
+            last_fill_px = Some(fill_px);
+
             self.fill_order(
                 order,
                 fill_px,
@@ -2489,7 +2495,25 @@ impl OrderMatchingEngine {
             // Exhausted simulated book volume (continue aggressive filling into next level)
             // This is a very basic implementation of slipping by a single tick, in the future
             // we will implement more detailed fill modeling.
-            todo!("Exhausted simulated book volume")
+            let fill_px = match (last_fill_px, order.order_side().as_specified()) {
+                (Some(px), OrderSideSpecified::Buy) => px.add(self.instrument.price_increment()),
+                (Some(px), OrderSideSpecified::Sell) => px.sub(self.instrument.price_increment()),
+                (None, _) => {
+                    log::error!(
+                        "Cannot slip order {}: no previous fill price",
+                        order.client_order_id()
+                    );
+                    return;
+                }
+            };
+            self.fill_order(
+                order,
+                fill_px,
+                order.leaves_qty(),
+                LiquiditySide::Taker,
+                venue_position_id,
+                position,
+            );
         }
     }
 
@@ -3221,6 +3245,9 @@ impl OrderMatchingEngine {
                 return;
             }
         };
+
+        // Generate OrderTriggered event (matches Python behavior)
+        self.generate_order_triggered(&order);
 
         match order.order_type() {
             OrderType::StopLimit | OrderType::LimitIfTouched | OrderType::TrailingStopLimit => {

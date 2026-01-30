@@ -22,13 +22,22 @@
 use std::{
     any::Any,
     cell::RefCell,
-    collections::{HashSet, VecDeque},
+    collections::HashSet,
     fmt::Debug,
     rc::Rc,
 };
 
 use ahash::AHashMap;
-use nautilus_common::timer::TimeEventHandler;
+use nautilus_common::{
+    actor::DataActor, clock::TestClock, component::Component, timer::TimeEventHandler,
+    runner::{
+        SyncDataCommandSender, set_data_cmd_sender,
+        set_time_event_sender, set_exec_cmd_sender,
+        TimeEventSender, TradingCommandSender,
+    },
+    messages::execution::TradingCommand,
+    msgbus::{self, MessagingSwitchboard},
+};
 use nautilus_core::{UUID4, UnixNanos};
 use nautilus_data::client::DataClientAdapter;
 use nautilus_execution::models::{fee::FeeModelAny, fill::FillModel, latency::LatencyModel};
@@ -40,6 +49,7 @@ use nautilus_model::{
     types::{Currency, Money},
 };
 use nautilus_system::{config::NautilusKernelConfig, kernel::NautilusKernel};
+use nautilus_trading::Strategy;
 use rust_decimal::Decimal;
 
 use crate::{
@@ -47,6 +57,27 @@ use crate::{
     data_client::BacktestDataClient, exchange::SimulatedExchange,
     execution_client::BacktestExecutionClient, modules::SimulationModule,
 };
+
+/// Synchronous time event sender for backtest (no-op, events handled by accumulator).
+#[derive(Debug)]
+struct SyncTimeEventSender;
+
+impl TimeEventSender for SyncTimeEventSender {
+    fn send(&self, _handler: TimeEventHandler) {
+        // In backtest, time events are handled by the TimeEventAccumulator directly
+    }
+}
+
+/// Synchronous trading command sender for backtest.
+#[derive(Debug)]
+struct SyncTradingCommandSender;
+
+impl TradingCommandSender for SyncTradingCommandSender {
+    fn execute(&self, command: TradingCommand) {
+        let endpoint = MessagingSwitchboard::exec_engine_execute();
+        msgbus::send_trading_command(endpoint, command);
+    }
+}
 
 /// Core backtesting engine for running event-driven strategy backtests on historical data.
 ///
@@ -63,14 +94,14 @@ use crate::{
 pub struct BacktestEngine {
     instance_id: UUID4,
     config: BacktestEngineConfig,
-    kernel: NautilusKernel,
+    pub kernel: NautilusKernel,
     accumulator: TimeEventAccumulator,
     run_config_id: Option<UUID4>,
     run_id: Option<UUID4>,
     venues: AHashMap<Venue, Rc<RefCell<SimulatedExchange>>>,
     has_data: HashSet<InstrumentId>,
     has_book_data: HashSet<InstrumentId>,
-    data: VecDeque<Data>,
+    data: Vec<Data>,
     index: usize,
     iteration: usize,
     run_started: Option<UnixNanos>,
@@ -108,7 +139,7 @@ impl BacktestEngine {
             venues: AHashMap::new(),
             has_data: HashSet::new(),
             has_book_data: HashSet::new(),
-            data: VecDeque::new(),
+            data: Vec::new(),
             index: 0,
             iteration: 0,
             run_started: None,
@@ -156,7 +187,7 @@ impl BacktestEngine {
             if account_type == AccountType::Margin {
                 Decimal::from(10)
             } else {
-                Decimal::from(0)
+                Decimal::from(1)
             }
         });
 
@@ -213,6 +244,24 @@ impl BacktestEngine {
             .exec_engine
             .borrow_mut()
             .register_client(Box::new(exec_client))?;
+
+        // Register data client with the data engine
+        let data_client = BacktestDataClient::new(
+            ClientId::from(venue.as_str()),
+            venue,
+            self.kernel.cache.clone(),
+        );
+        let data_adapter = DataClientAdapter::new(
+            ClientId::from(venue.as_str()),
+            Some(venue),
+            false,
+            true,
+            Box::new(data_client),
+        );
+        self.kernel
+            .data_engine
+            .borrow_mut()
+            .register_client(data_adapter, Some(venue));
 
         log::info!("Adding exchange {venue} to engine");
 
@@ -312,15 +361,10 @@ impl BacktestEngine {
         }
 
         // Extend master data vector and ensure internal iterator (index) remains valid.
-        for item in to_add {
-            self.data.push_back(item);
-        }
+        self.data.extend(to_add);
 
         if sort {
-            // VecDeque cannot be sorted directly; convert to Vec for sorting, then back.
-            let mut vec: Vec<Data> = self.data.drain(..).collect();
-            vec.sort_by_key(HasTsInit::ts_init);
-            self.data = vec.into();
+            self.data.sort_by_key(HasTsInit::ts_init);
         }
 
         log::info!(
@@ -330,71 +374,237 @@ impl BacktestEngine {
         );
     }
 
-    pub fn add_actor(&mut self) {
-        todo!("implement add_actor")
+    pub fn add_actor<T>(&mut self, actor: T) -> anyhow::Result<()>
+    where
+        T: DataActor + Component + Debug + 'static,
+    {
+        self.kernel.trader.add_actor(actor)
     }
 
-    pub fn add_actors(&mut self) {
-        todo!("implement add_actors")
+    pub fn add_actors<T>(&mut self, actors: Vec<T>) -> anyhow::Result<()>
+    where
+        T: DataActor + Component + Debug + 'static,
+    {
+        for a in actors {
+            self.add_actor(a)?;
+        }
+        Ok(())
     }
 
-    pub fn add_strategy(&mut self) {
-        todo!("implement add_strategy")
+    pub fn add_strategy<T>(&mut self, strategy: T) -> anyhow::Result<()>
+    where
+        T: Strategy + Component + Debug + 'static,
+    {
+        self.kernel.trader.add_strategy(strategy)
     }
 
-    pub fn add_strategies(&mut self) {
-        todo!("implement add_strategies")
+    pub fn add_strategies<T>(&mut self, strategies: Vec<T>) -> anyhow::Result<()>
+    where
+        T: Strategy + Component + Debug + 'static,
+    {
+        for s in strategies {
+            self.add_strategy(s)?;
+        }
+        Ok(())
     }
 
-    pub fn add_exec_algorithm(&mut self) {
-        todo!("implement add_exec_algorithm")
+    pub fn add_exec_algorithm<T>(&mut self, exec_algorithm: T) -> anyhow::Result<()>
+    where
+        T: DataActor + Component + Debug + 'static,
+    {
+        self.kernel.trader.add_exec_algorithm(exec_algorithm)
     }
 
-    pub fn add_exec_algorithms(&mut self) {
-        todo!("implement add_exec_algorithms")
+    pub fn add_exec_algorithms<T>(&mut self, exec_algorithms: Vec<T>) -> anyhow::Result<()>
+    where
+        T: DataActor + Component + Debug + 'static,
+    {
+        for ea in exec_algorithms {
+            self.add_exec_algorithm(ea)?;
+        }
+        Ok(())
     }
 
     pub fn reset(&mut self) {
-        todo!("implement reset")
+        for exchange in self.venues.values() {
+            exchange.borrow_mut().reset();
+        }
+        self.kernel.reset();
+        self.data.clear();
+        self.has_data.clear();
+        self.has_book_data.clear();
+        self.index = 0;
+        self.iteration = 0;
+        self.run_started = None;
+        self.run_finished = None;
+        self.backtest_start = None;
+        self.backtest_end = None;
+        self.run_config_id = None;
+        self.run_id = None;
+        log::info!("BacktestEngine reset");
     }
 
     pub fn clear_data(&mut self) {
-        todo!("implement clear_data")
+        self.data.clear();
+        self.has_data.clear();
+        self.has_book_data.clear();
+        self.index = 0;
+        log::info!("BacktestEngine data cleared");
     }
 
     pub fn clear_strategies(&mut self) {
-        todo!("implement clear_strategies")
+        log::warn!("clear_strategies not yet supported by Trader API");
     }
 
     pub fn clear_exec_algorithms(&mut self) {
-        todo!("implement clear_exec_algorithms")
+        log::warn!("clear_exec_algorithms not yet supported by Trader API");
     }
 
     pub fn dispose(&mut self) {
-        todo!("implement dispose")
+        self.kernel.dispose();
+        self.venues.clear();
+        log::info!("BacktestEngine disposed");
     }
 
-    pub fn run(&mut self) {
-        todo!("implement run")
+    /// Run the backtest engine over loaded data.
+    ///
+    /// Data is preserved across calls, allowing multiple `run()` invocations with
+    /// different time windows. Use `self.index` to seek into the data for the next
+    /// run (matching the Python engine's non-destructive iterator approach).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if no data has been loaded or if engine initialization fails.
+    pub fn run(
+        &mut self,
+        start: Option<UnixNanos>,
+        end: Option<UnixNanos>,
+    ) -> anyhow::Result<()> {
+        anyhow::ensure!(!self.data.is_empty(), "No data to run backtest");
+
+        let start_ns = start.unwrap_or_else(|| self.data.first().unwrap().ts_init());
+        let end_ns = end.unwrap_or_else(|| self.data.last().unwrap().ts_init());
+
+        // First run initialization
+        if self.iteration == 0 {
+            self.run_id = Some(UUID4::new());
+            self.run_config_id = Some(UUID4::new());
+
+            // Initialize sync command senders for backtest
+            set_data_cmd_sender(std::sync::Arc::new(SyncDataCommandSender));
+            set_time_event_sender(std::sync::Arc::new(SyncTimeEventSender));
+            set_exec_cmd_sender(std::sync::Arc::new(SyncTradingCommandSender));
+
+            for exchange in self.venues.values() {
+                exchange.borrow_mut().initialize_account();
+            }
+
+            self.kernel.data_engine.borrow_mut().start();
+            self.kernel.exec_engine.borrow_mut().start();
+            self.kernel.risk_engine.borrow_mut().start();
+            self.kernel.trader.initialize()?;
+            self.kernel.trader.start()?;
+        }
+
+        self.run_started = Some(self.kernel.clock.borrow().timestamp_ns());
+        self.backtest_start = Some(start_ns);
+        self.backtest_end = Some(end_ns);
+        self.log_pre_run();
+
+        // Seek index to first element >= start_ns
+        while self.index < self.data.len() && self.data[self.index].ts_init() < start_ns {
+            self.index += 1;
+        }
+
+        let mut last_ns = UnixNanos::default();
+        while self.index < self.data.len() {
+            let data = &self.data[self.index];
+            let ts = data.ts_init();
+            if ts > end_ns {
+                break;
+            }
+
+            // Advance time when timestamp changes
+            if ts > last_ns {
+                // advance_clock with set_time=true internally calls set_time,
+                // so no separate set_time call is needed.
+                let mut clock_guard = self.kernel.clock.borrow_mut();
+                let test_clock = clock_guard
+                    .as_any_mut()
+                    .downcast_mut::<TestClock>()
+                    .expect("BacktestEngine requires a TestClock");
+                self.accumulator.advance_clock(test_clock, ts, true);
+                drop(clock_guard);
+                last_ns = ts;
+            }
+
+            // Route data to simulated exchange
+            let venue = data.instrument_id().venue;
+            if let Some(exchange) = self.venues.get(&venue) {
+                let mut ex = exchange.borrow_mut();
+                match data {
+                    Data::Delta(d) => ex.process_order_book_delta(*d),
+                    Data::Deltas(d) => ex.process_order_book_deltas((**d).clone()),
+                    Data::Quote(q) => ex.process_quote_tick(q),
+                    Data::Trade(t) => ex.process_trade_tick(t),
+                    Data::Bar(b) => ex.process_bar(*b),
+                    _ => {}
+                }
+            }
+
+            // Clone data for the data engine (process_data takes ownership)
+            let data_owned = self.data[self.index].clone();
+            self.kernel.data_engine.borrow_mut().process_data(data_owned);
+
+            // Drain deferred order events before exchange processing
+            // (OrderSubmitted must be applied before exchange can fill orders)
+            crate::execution_client::drain_deferred_order_events();
+
+            // Process exchange queues
+            for exchange in self.venues.values() {
+                exchange.borrow_mut().process(ts);
+            }
+
+            // Drain any new deferred events from exchange processing
+            crate::execution_client::drain_deferred_order_events();
+
+            // Process accumulated time events
+            let handlers = self.accumulator.drain();
+            if !handlers.is_empty() {
+                self.process_raw_time_event_handlers(handlers, ts, false, true);
+            }
+
+            self.index += 1;
+            self.iteration += 1;
+        }
+
+        self.run_finished = Some(self.kernel.clock.borrow().timestamp_ns());
+        self.log_post_run();
+        Ok(())
     }
 
-    pub fn end(&mut self) {
-        todo!("implement end")
+    /// End the backtest, stopping the trader and engines.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if stopping the trader fails.
+    pub fn end(&mut self) -> anyhow::Result<()> {
+        if !self.kernel.trader.is_running() {
+            return Ok(());
+        }
+        self.kernel.stop_trader();
+        self.kernel.data_engine.borrow_mut().stop();
+        self.kernel.exec_engine.borrow_mut().stop();
+        self.kernel.risk_engine.borrow_mut().stop();
+        self.run_finished = Some(self.kernel.clock.borrow().timestamp_ns());
+        log::info!("Backtest ended");
+        Ok(())
     }
 
     pub fn get_result(&self) {
         // TODO: implement full BacktestResult aggregation once portfolio analysis
         // components are available in Rust. For now we simply log and return.
         log::info!("BacktestEngine::get_result called – not yet implemented");
-    }
-
-    pub fn next(&mut self) {
-        self.data.pop_front();
-    }
-
-    pub fn advance_time(&mut self, _ts_now: UnixNanos) -> Vec<TimeEventHandler> {
-        // TODO: integrate TestClock advancement when kernel clocks are exposed.
-        self.accumulator.drain()
     }
 
     pub fn process_raw_time_event_handlers(
@@ -426,15 +636,31 @@ impl BacktestEngine {
     }
 
     pub fn log_pre_run(&self) {
-        todo!("implement log_pre_run_diagnostics")
+        log::info!("=== BACKTEST PRE-RUN ===");
+        log::info!("Run ID: {:?}", self.run_id);
+        log::info!("Venues: {}", self.venues.len());
+        log::info!("Data events: {}", self.data.len());
+        log::info!("Instruments with data: {}", self.has_data.len());
     }
 
     pub fn log_run(&self) {
-        todo!("implement log_run")
+        log::info!("=== BACKTEST RUN ===");
+        log::info!("Iteration: {}", self.iteration);
     }
 
     pub fn log_post_run(&self) {
-        todo!("implement log_post_run")
+        log::info!("=== BACKTEST POST-RUN ===");
+        log::info!("Total iterations: {}", self.iteration);
+        if let (Some(started), Some(finished)) = (self.run_started, self.run_finished) {
+            let elapsed_ns = finished.as_u64() - started.as_u64();
+            let elapsed_s = elapsed_ns as f64 / 1e9;
+            let rate = if elapsed_s > 0.0 {
+                self.iteration as f64 / elapsed_s
+            } else {
+                0.0
+            };
+            log::info!("Elapsed: {:.2}s ({:.0} events/s)", elapsed_s, rate);
+        }
     }
 
     pub fn add_data_client_if_not_exists(&mut self, client_id: ClientId) {

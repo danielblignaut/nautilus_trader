@@ -1814,8 +1814,8 @@ impl ExecutionEngine {
         order.set_leaves_qty(base_qty);
         order.set_is_quote_quantity(false);
 
-        if matches!(order.contingency_type(), Some(ContingencyType::Oto)) {
-            return;
+        if !matches!(order.contingency_type(), Some(ContingencyType::Oto)) {
+            return; // Only propagate base qty to linked orders for OTO contingency
         }
 
         if let Some(linked_order_ids) = order.linked_order_ids() {
