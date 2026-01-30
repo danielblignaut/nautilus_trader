@@ -132,9 +132,22 @@ impl AccountsManager {
                 .map(|(updated_margin_account, state)| {
                     (AccountAny::Margin(updated_margin_account), state)
                 }),
-            AccountAny::Betting(_) => {
-                log::warn!("update_orders not yet implemented for betting accounts");
-                None
+            AccountAny::Betting(mut betting_account) => {
+                // For betting accounts, we need to handle balance updates similarly to cash accounts
+                // but without the locked balance calculation complexity
+                let account_ref = AccountAny::Betting(betting_account.clone());
+                let updated_account = self
+                    .update_betting_balance_locked(&mut betting_account, instrument, orders_open, ts_event)
+                    .unwrap_or(account_ref);
+                
+                // Generate account state for the updated account
+                let account_state = self.generate_account_state(updated_account.clone(), ts_event);
+                
+                // Return the tuple with updated account and its state
+                Some((
+                    updated_account,
+                    account_state,
+                ))
             }
         }
     }
@@ -404,40 +417,51 @@ impl AccountsManager {
         ))
     }
 
-    // Commented out: BettingAccount does not exist in Rust port yet
-    // fn update_balance_locked_betting(
-    //     &self,
-    //     account: &crate::accounts::BettingAccount,
-    //     instrument: InstrumentAny,
-    //     orders_open: Vec<&OrderAny>,
-    //     ts_event: UnixNanos,
-    // ) -> Option<(crate::accounts::BettingAccount, AccountState)> {
-    //     use crate::accounts::BettingAccount;
-    //     
-    //     let mut account = account.clone();
-    //
-    //     if orders_open.is_empty() {
-    //         account.update_balance_locked(instrument.id(), Money::new(0.0, instrument.quote_currency()));
-    //         return Some((
-    //             account.clone(),
-    //             self.generate_account_state(AccountAny::Betting(account), ts_event),
-    //         ));
-    //     }
-    //
-    //     let mut total_locked = Money::new(0.0, instrument.quote_currency());
-    //
-    //     for order in &orders_open {
-    //         assert_eq!(
-    //             order.instrument_id(),
-    //             instrument.id(),
-    //             "Order not for instrument {}",
-    //             instrument.id()
-    //         );
-    //         assert!(order.is_open(), "Order is not open");
-    //
-    //         if order.price().is_none() && order.trigger_price().is_none() {
-    //             continue;
-    //         }
+    /// Updates locked balance for betting accounts.
+    fn update_betting_balance_locked(
+        &self,
+        account: &mut nautilus_model::accounts::BettingAccount,
+        instrument: InstrumentAny,
+        orders_open: Vec<&OrderAny>,
+        _ts_event: UnixNanos,
+    ) -> Option<AccountAny> {
+        use nautilus_model::types::Money;
+
+        if orders_open.is_empty() {
+            account.clear_balance_locked(instrument.id());
+            return Some(AccountAny::Betting(account.clone()));
+        }
+
+        let currency = instrument.settlement_currency();
+        let mut total_locked_raw: f64 = 0.0;
+
+        for order in &orders_open {
+            assert_eq!(
+                order.instrument_id(),
+                instrument.id(),
+                "Order not for instrument {}",
+                instrument.id()
+            );
+            assert!(order.is_open(), "Order is not open");
+
+            // For betting accounts, locked amount is quantity * price (the stake)
+            if let Some(price) = order.price() {
+                let locked = price.as_f64() * order.quantity().as_f64();
+                total_locked_raw += locked;
+            }
+        }
+
+        // Clear existing locks and apply new total
+        account.clear_balance_locked(instrument.id());
+        
+        if total_locked_raw > 0.0 {
+            let locked_money = Money::new(total_locked_raw, currency);
+            account.update_balance_locked(instrument.id(), locked_money);
+            log::info!("{} betting_balance_locked={}", instrument.id(), locked_money);
+        }
+
+        Some(AccountAny::Betting(account.clone()))
+    }
     //
     //         if order.is_reduce_only() {
     //             continue; // Does not contribute to locked balance

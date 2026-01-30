@@ -1875,8 +1875,12 @@ fn update_order(
     // Drop cache_ref before mutable borrow (orders_open is already dropped after being moved)
     drop(cache_ref);
 
-    let mut cache_ref = cache.borrow_mut();
-    cache_ref.update_account(updated_account).unwrap();
+    {
+        let mut cache_ref = cache.borrow_mut();
+        cache_ref.update_account(updated_account).unwrap();
+    }
+    // cache borrow is now dropped before publish to avoid re-entrant borrow panic
+    // (publish_account_state synchronously invokes update_account which borrows cache)
 
     if let Some((_, account_state)) = account_state {
         msgbus::publish_account_state(
