@@ -787,6 +787,7 @@ impl OrderCore {
         if let Some(prev) = self.previous_status.take() {
             self.status = prev;
         }
+
         if let Some(venue_order_id) = &event.venue_order_id
             && (self.venue_order_id.is_none()
                 || venue_order_id != self.venue_order_id.as_ref().unwrap())

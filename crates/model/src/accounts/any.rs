@@ -189,16 +189,32 @@ impl AccountAny {
 impl AccountAny {
     /// Creates an `AccountAny` from an `AccountState`, returning an error for unsupported types.
     ///
+    /// This method uses the [`AccountFactory`] to determine if the account should be
+    /// calculated from fills and if cash borrowing is allowed.
+    ///
     /// # Errors
     ///
     /// Returns an error if the account type is `Wallet` (unsupported in Rust).
     pub fn try_from_state(event: AccountState) -> Result<Self, &'static str> {
+        let issuer = event.account_id.get_issuer();
+        let issuer_str = issuer.as_str();
+        let calculated =
+            crate::accounts::factory::AccountFactory::is_calculated_account(issuer_str);
+        let allow_borrowing =
+            crate::accounts::factory::AccountFactory::is_cash_borrowing(issuer_str);
+
         match event.account_type {
-            AccountType::Margin => Ok(Self::Margin(MarginAccount::new(event, false))),
-            AccountType::Cash => Ok(Self::Cash(CashAccount::new(event, false, false))),
-            AccountType::Betting => {
-                Ok(Self::Betting(BettingAccount::new(event, false, false)))
-            }
+            AccountType::Margin => Ok(Self::Margin(MarginAccount::new(event, calculated))),
+            AccountType::Cash => Ok(Self::Cash(CashAccount::new(
+                event,
+                calculated,
+                allow_borrowing,
+            ))),
+            AccountType::Betting => Ok(Self::Betting(BettingAccount::new(
+                event,
+                calculated,
+                allow_borrowing,
+            ))),
             AccountType::Wallet => Err("Wallet accounts are not yet implemented in Rust"),
         }
     }
