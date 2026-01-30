@@ -19,8 +19,8 @@
 
 //! Provides a `BacktestExecutionClient` implementation for backtesting.
 
-use std::{cell::RefCell, collections::VecDeque, fmt::Debug, rc::Rc};
 use nautilus_model::events::OrderEventAny;
+use std::{cell::RefCell, collections::VecDeque, fmt::Debug, rc::Rc};
 
 use async_trait::async_trait;
 use nautilus_common::{
@@ -37,7 +37,7 @@ use nautilus_common::{
 use nautilus_core::{SharedCell, UnixNanos, WeakCell};
 use nautilus_execution::client::core::ExecutionClientCore;
 use nautilus_model::{
-    accounts::AccountAny,
+    accounts::{AccountAny, AccountFactory},
     enums::OmsType,
     identifiers::{AccountId, ClientId, ClientOrderId, TraderId, Venue},
     orders::OrderAny,
@@ -55,9 +55,8 @@ thread_local! {
 
 /// Drain all deferred order events and send them to the execution engine.
 pub fn drain_deferred_order_events() {
-    let events: VecDeque<OrderEventAny> = DEFERRED_ORDER_EVENTS.with(|q| {
-        std::mem::take(&mut *q.borrow_mut())
-    });
+    let events: VecDeque<OrderEventAny> =
+        DEFERRED_ORDER_EVENTS.with(|q| std::mem::take(&mut *q.borrow_mut()));
     if !events.is_empty() {
         let endpoint = MessagingSwitchboard::exec_engine_process();
         for event in events {
@@ -124,7 +123,14 @@ impl BacktestExecutionClient {
         let factory = OrderEventFactory::new(trader_id, account_id, account_type, base_currency);
 
         if !frozen_account {
-            // TODO Register calculated account
+            // Register calculated account for dynamic balance computation from fills
+            let issuer = exchange_id.as_str();
+            if let Err(e) = AccountFactory::register_calculated_account(issuer) {
+                log::debug!(
+                    "AccountFactory registration skipped (may already be registered): {}",
+                    e
+                );
+            }
         }
 
         Self {
