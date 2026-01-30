@@ -1754,7 +1754,6 @@ fn update_order(
     _config: PortfolioConfig,
     event: &OrderEventAny,
 ) {
-    let cache_ref = cache.borrow();
     let account_id = match event.account_id() {
         Some(account_id) => account_id,
         None => {
@@ -1762,30 +1761,30 @@ fn update_order(
         }
     };
 
-    let account = if let Some(account) = cache_ref.account(&account_id) {
-        account
-    } else {
-        log::error!("Cannot update order: no account registered for {account_id}");
-        return;
-    };
+    // First scope: check account and early returns - borrow is dropped after this block
+    let account = {
+        let cache_ref = cache.borrow();
+        let account = if let Some(account) = cache_ref.account(&account_id) {
+            account
+        } else {
+            log::error!("Cannot update order: no account registered for {account_id}");
+            return;
+        };
 
-    match account {
-        AccountAny::Cash(cash_account) => {
-            if !cash_account.base.calculate_account_state {
-                return;
-            }
+        // Check if we should process this account type
+        let should_process = match account {
+            AccountAny::Cash(cash_account) => cash_account.base.calculate_account_state,
+            AccountAny::Margin(margin_account) => margin_account.base.calculate_account_state,
+            AccountAny::Betting(betting_account) => betting_account.base.calculate_account_state,
+        };
+
+        if !should_process {
+            return;
         }
-        AccountAny::Margin(margin_account) => {
-            if !margin_account.base.calculate_account_state {
-                return;
-            }
-        }
-        AccountAny::Betting(betting_account) => {
-            if !betting_account.base.calculate_account_state {
-                return;
-            }
-        }
-    }
+
+        // Clone the account to return it (cache_ref will be dropped here)
+        account.clone()
+    };
 
     match event {
         OrderEventAny::Accepted(_)
@@ -1814,7 +1813,7 @@ fn update_order(
     }
 
     let instrument = if let Some(instrument_id) = cache_ref.instrument(&event.instrument_id()) {
-        instrument_id
+        instrument_id.clone()
     } else {
         log::error!(
             "Cannot update order: no instrument found for {}",
@@ -1824,12 +1823,19 @@ fn update_order(
     };
 
     let updated_account = if let OrderEventAny::Filled(order_filled) = event {
-        let (updated_account, _account_state) = inner.borrow().accounts.update_balances(
-            account.clone(),
-            instrument.clone(),
-            *order_filled,
-        );
+        // Perform account balance update in a separate scope to drop the borrow before
+        // calling calculate_unrealized_pnl, which also needs to borrow inner
+        let (updated_account, _account_state) = {
+            let inner_ref = inner.borrow();
+            inner_ref.accounts.update_balances(
+                account.clone(),
+                instrument.clone(),
+                *order_filled,
+            )
+        };
 
+        // Now safe to create portfolio_clone and call calculate_unrealized_pnl
+        // since the previous inner.borrow() has been dropped
         let mut portfolio_clone = Portfolio {
             clock: clock.clone(),
             cache: cache.clone(),
@@ -1865,6 +1871,9 @@ fn update_order(
         orders_open,
         clock.borrow().timestamp_ns(),
     );
+
+    // Drop cache_ref before mutable borrow (orders_open is already dropped after being moved)
+    drop(cache_ref);
 
     let mut cache_ref = cache.borrow_mut();
     cache_ref.update_account(updated_account).unwrap();
