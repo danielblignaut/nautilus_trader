@@ -41,7 +41,7 @@ use nautilus_model::{
         TrailingOffsetType, TriggerType,
     },
     events::{OrderDenied, OrderEventAny, OrderModifyRejected},
-    identifiers::InstrumentId,
+    identifiers::{AccountId, InstrumentId},
     instruments::{Instrument, InstrumentAny},
     orders::{Order, OrderAny, OrderList},
     types::{Currency, Money, Price, Quantity, quantity::QuantityRaw},
@@ -665,10 +665,24 @@ impl RiskEngine {
             ));
         }
 
-        // Get account for risk checks
+        // Group orders by account_id for per-account risk checks
+        let mut orders_by_account: AHashMap<Option<AccountId>, Vec<&OrderAny>> = AHashMap::new();
+        for order in orders {
+            orders_by_account
+                .entry(order.account_id())
+                .or_default()
+                .push(order);
+        }
+
+        for (_account_id, account_orders) in &orders_by_account {
+        // Get account for risk checks: try order's account_id first, fall back to venue lookup
         let account_exists = {
             let cache = self.cache.borrow();
-            cache.account_for_venue(&instrument.id().venue).cloned()
+            if let Some(acct_id) = _account_id {
+                cache.account(acct_id).cloned()
+            } else {
+                cache.account_for_venue(&instrument.id().venue).cloned()
+            }
         };
 
         let account = if let Some(account) = account_exists {
@@ -679,8 +693,8 @@ impl RiskEngine {
         };
         let cash_account = match account {
             AccountAny::Cash(cash_account) => cash_account,
-            AccountAny::Margin(_) => return true, // TODO: Determine risk controls for margin
-            AccountAny::Betting(_) => return true, // TODO: Determine risk controls for betting
+            AccountAny::Margin(_) => continue, // TODO: Determine risk controls for margin
+            AccountAny::Betting(_) => continue, // TODO: Determine risk controls for betting
         };
         let free = cash_account.balance_free(Some(instrument.quote_currency()));
         let allow_borrowing = cash_account.allow_borrowing;
@@ -732,7 +746,7 @@ impl RiskEngine {
         let mut cum_notional_buy: Option<Money> = None;
         let mut cum_notional_sell: Option<Money> = None;
         let mut base_currency: Option<Currency> = None;
-        for order in orders {
+        for &order in account_orders {
             // Determine last price based on order type
             last_px = match order {
                 OrderAny::Market(_) | OrderAny::MarketToLimit(_) => {
@@ -1115,6 +1129,8 @@ impl RiskEngine {
                 }
             }
         }
+
+        } // end for each account group
 
         // Finally
         true // Passed

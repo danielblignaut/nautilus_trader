@@ -580,8 +580,8 @@ impl Portfolio {
             return None;
         }
 
-        Some(Money::new(
-            realized.as_f64() + unrealized.as_f64(),
+        Some(Money::from_raw(
+            realized.raw + unrealized.raw,
             realized.currency,
         ))
     }
@@ -1597,7 +1597,17 @@ impl Portfolio {
                 let cache = self.cache.borrow();
 
                 if self.config.use_mark_xrates {
-                    return cache.get_mark_xrate(instrument.settlement_currency(), base_currency);
+                    let mark_xrate = cache.get_mark_xrate(instrument.settlement_currency(), base_currency);
+                    if mark_xrate.is_some() {
+                        return mark_xrate;
+                    }
+                    // Fallback to MID xrate if mark xrate not available
+                    return cache.get_xrate(
+                        instrument.id().venue,
+                        instrument.settlement_currency(),
+                        base_currency,
+                        PriceType::Mid,
+                    );
                 }
 
                 let price_type = if side == OrderSide::Buy {
