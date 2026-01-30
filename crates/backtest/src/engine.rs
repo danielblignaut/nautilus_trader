@@ -24,6 +24,7 @@ use std::{
     cell::RefCell,
     collections::HashSet,
     fmt::Debug,
+    panic::{catch_unwind, AssertUnwindSafe},
     rc::Rc,
 };
 
@@ -560,9 +561,28 @@ impl BacktestEngine {
             // (OrderSubmitted must be applied before exchange can fill orders)
             crate::execution_client::drain_deferred_order_events();
 
-            // Process exchange queues
+            // Process exchange queues (catch account/margin panics for graceful termination)
+            let mut account_blowup = false;
             for exchange in self.venues.values() {
-                exchange.borrow_mut().process(ts);
+                let exchange_ref = Rc::clone(exchange);
+                let result = catch_unwind(AssertUnwindSafe(|| {
+                    exchange_ref.borrow_mut().process(ts);
+                }));
+                if let Err(panic_payload) = result {
+                    let msg = if let Some(s) = panic_payload.downcast_ref::<&str>() {
+                        s.to_string()
+                    } else if let Some(s) = panic_payload.downcast_ref::<String>() {
+                        s.clone()
+                    } else {
+                        "unknown panic".to_string()
+                    };
+                    log::warn!("Account error during exchange processing, terminating backtest early: {msg}");
+                    account_blowup = true;
+                    break;
+                }
+            }
+            if account_blowup {
+                break;
             }
 
             // Drain any new deferred events from exchange processing

@@ -3246,6 +3246,12 @@ impl OrderMatchingEngine {
             }
         };
 
+        // If already triggered, skip re-triggering and try to fill as limit order
+        if order.status() == OrderStatus::Triggered {
+            self.fill_limit_order(client_order_id);
+            return;
+        }
+
         // Generate OrderTriggered event (matches Python behavior)
         self.generate_order_triggered(&order);
 

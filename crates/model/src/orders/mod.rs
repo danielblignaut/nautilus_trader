@@ -240,6 +240,7 @@ impl OrderStatus {
             (Self::PendingUpdate, OrderEventAny::PendingUpdate(_)) => Self::PendingUpdate,  // Allow multiple requests
             (Self::PendingUpdate, OrderEventAny::PendingCancel(_)) => Self::PendingCancel,
             (Self::PendingUpdate, OrderEventAny::ModifyRejected(_)) => Self::PendingUpdate,  // Handled by modify_rejected to restore previous_status
+            (Self::PendingUpdate, OrderEventAny::Updated(_)) => Self::PendingUpdate,  // Handled by updated() to restore previous_status
             (Self::PendingUpdate, OrderEventAny::Filled(_)) => Self::Filled,
             (Self::PendingCancel, OrderEventAny::Rejected(_)) => Self::Rejected,
             (Self::PendingCancel, OrderEventAny::PendingCancel(_)) => Self::PendingCancel,  // Allow multiple requests
@@ -782,6 +783,10 @@ impl OrderCore {
     }
 
     fn updated(&mut self, event: &OrderUpdated) {
+        // Restore previous status when coming from PendingUpdate (normal modify success path)
+        if let Some(prev) = self.previous_status.take() {
+            self.status = prev;
+        }
         if let Some(venue_order_id) = &event.venue_order_id
             && (self.venue_order_id.is_none()
                 || venue_order_id != self.venue_order_id.as_ref().unwrap())

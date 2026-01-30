@@ -242,6 +242,9 @@ impl OrderMatchingCore {
         self.bid = None;
         self.ask = None;
         self.last = None;
+        self.is_bid_initialized = false;
+        self.is_ask_initialized = false;
+        self.is_last_initialized = false;
         self.orders_bid.clear();
         self.orders_ask.clear();
     }
