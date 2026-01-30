@@ -40,6 +40,7 @@ pub trait FeeModel {
 pub enum FeeModelAny {
     Fixed(FixedFeeModel),
     MakerTaker(MakerTakerFeeModel),
+    Polymarket(PolymarketFeeModel),
 }
 
 impl FeeModel for FeeModelAny {
@@ -53,6 +54,9 @@ impl FeeModel for FeeModelAny {
         match self {
             Self::Fixed(model) => model.get_commission(order, fill_quantity, fill_px, instrument),
             Self::MakerTaker(model) => {
+                model.get_commission(order, fill_quantity, fill_px, instrument)
+            }
+            Self::Polymarket(model) => {
                 model.get_commission(order, fill_quantity, fill_px, instrument)
             }
         }
@@ -129,6 +133,37 @@ impl FeeModel for MakerTakerFeeModel {
         } else {
             Ok(Money::new(commission, instrument.quote_currency()))
         }
+    }
+}
+
+/// Fee model for Polymarket betting instruments (JIRA-005).
+///
+/// Computes commission as `fill_qty * fill_price * fee_rate`, which is the
+/// correct notional for binary betting instruments where the instrument's
+/// `calculate_notional_value` uses `qty * multiplier` (ignoring fill price).
+#[derive(Debug, Clone)]
+pub struct PolymarketFeeModel {
+    pub fee_rate: f64,
+}
+
+impl PolymarketFeeModel {
+    #[must_use]
+    pub fn new(fee_rate: f64) -> Self {
+        Self { fee_rate }
+    }
+}
+
+impl FeeModel for PolymarketFeeModel {
+    fn get_commission(
+        &self,
+        _order: &OrderAny,
+        fill_quantity: Quantity,
+        fill_px: Price,
+        instrument: &InstrumentAny,
+    ) -> anyhow::Result<Money> {
+        let notional = fill_quantity.as_f64() * fill_px.as_f64();
+        let commission = notional * self.fee_rate;
+        Ok(Money::new(commission, instrument.quote_currency()))
     }
 }
 
