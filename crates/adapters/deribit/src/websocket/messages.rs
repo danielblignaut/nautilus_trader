@@ -161,13 +161,20 @@ pub struct DeribitTradeMsg {
     /// IV (for options).
     #[serde(default, deserialize_with = "deserialize_optional_decimal")]
     pub iv: Option<Decimal>,
+    /// Trade size in contract units (optional, may be absent in historical trades).
+    #[serde(default, deserialize_with = "deserialize_optional_decimal")]
+    pub contracts: Option<Decimal>,
     /// Liquidation indicator.
+    #[serde(default)]
     pub liquidation: Option<String>,
     /// Combo trade ID (if part of combo).
-    pub combo_trade_id: Option<i64>,
+    #[serde(default)]
+    pub combo_trade_id: Option<String>,
     /// Block trade ID.
+    #[serde(default)]
     pub block_trade_id: Option<String>,
     /// Combo ID.
+    #[serde(default)]
     pub combo_id: Option<String>,
 }
 
