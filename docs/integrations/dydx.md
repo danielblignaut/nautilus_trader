@@ -298,7 +298,7 @@ config = TradingNodeConfig(
         "DYDX": {
             "wallet_address": "YOUR_WALLET_ADDRESS",
             "subaccount": 0,  # Default subaccount
-            "mnemonic": "YOUR_MNEMONIC",
+            "private_key": "YOUR_MNEMONIC",
         },
     },
 )
@@ -331,7 +331,7 @@ support environment variable fallbacks for credentials and network-specific sett
 |--------------------------|---------|-------------|
 | `wallet_address`         | `None`  | Wallet address for the account. Falls back to `DYDX_WALLET_ADDRESS` (mainnet) or `DYDX_TESTNET_WALLET_ADDRESS` (testnet). |
 | `subaccount`             | `0`     | Subaccount number (0-127). Subaccount 0 is the default. |
-| `mnemonic`               | `None`  | BIP-39 mnemonic for transaction signing. Falls back to `DYDX_MNEMONIC` (mainnet) or `DYDX_TESTNET_MNEMONIC` (testnet). |
+| `private_key`            | `None`  | Hex-encoded private key for transaction signing. Falls back to `DYDX_PRIVATE_KEY` (mainnet) or `DYDX_TESTNET_PRIVATE_KEY` (testnet). |
 | `is_testnet`             | `False` | Connect to dYdX testnet when `True`. |
 | `max_retries`            | `3`     | Maximum retry attempts for order operations. |
 | `retry_delay_initial_ms` | `1000`  | Initial delay (milliseconds) between retries. |
@@ -363,7 +363,7 @@ config = TradingNodeConfig(
         "DYDX": {
             "wallet_address": "dydx1...",  # Or use environment variable
             "subaccount": 0,
-            "mnemonic": "word1 word2 ...",  # Or use environment variable
+            "private_key": "word1 word2 ...",  # Or use environment variable
             "is_testnet": False,
         },
     },
@@ -392,7 +392,7 @@ node.build()
 
 The dYdX adapter supports two methods for supplying credentials:
 
-1. **Direct configuration**: Pass `wallet_address` and `mnemonic` in the config
+1. **Direct configuration**: Pass `wallet_address` and `private_key` in the config
 2. **Environment variables**: Set environment variables (recommended for security)
 
 #### Environment variables
@@ -402,12 +402,12 @@ The adapter automatically selects environment variables based on the `is_testnet
 **Mainnet:**
 
 - `DYDX_WALLET_ADDRESS` - Your dYdX wallet address
-- `DYDX_MNEMONIC` - BIP-39 mnemonic phrase for signing
+- `DYDX_PRIVATE_KEY` - Hex-encoded private key for signing
 
 **Testnet:**
 
 - `DYDX_TESTNET_WALLET_ADDRESS` - Your testnet wallet address
-- `DYDX_TESTNET_MNEMONIC` - Testnet mnemonic phrase
+- `DYDX_TESTNET_PRIVATE_KEY` - Testnet hex-encoded private key
 
 :::tip
 Use environment variables for credential management. This keeps sensitive information out of
@@ -442,7 +442,7 @@ config = TradingNodeConfig(
 
 :::warning
 Ensure you have testnet credentials in the appropriate environment variables (`DYDX_TESTNET_WALLET_ADDRESS`
-and `DYDX_TESTNET_MNEMONIC`) before connecting to testnet.
+and `DYDX_TESTNET_PRIVATE_KEY`) before connecting to testnet.
 :::
 
 ### Parser warnings

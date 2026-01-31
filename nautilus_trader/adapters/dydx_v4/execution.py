@@ -172,20 +172,18 @@ class DYDXv4ExecutionClient(LiveExecutionClient):
         ws_url = config.base_url_ws or get_ws_url(is_testnet=config.is_testnet)
         grpc_urls = config.base_url_grpc or get_grpc_urls(is_testnet=config.is_testnet)
 
-        # Initialize wallet and gRPC client from mnemonic
-        self._wallet: nautilus_pyo3.DydxWallet | None = None  # type: ignore[name-defined]
+        # Initialize gRPC client and order submitter (wallet owned by submitter)
         self._grpc_client: nautilus_pyo3.DydxGrpcClient | None = None  # type: ignore[name-defined]
         self._order_submitter: nautilus_pyo3.DydxOrderSubmitter | None = None  # type: ignore[name-defined]
         self._grpc_urls = grpc_urls
 
         # WebSocket API (private client for account updates)
-        # Note: The private WebSocket requires mnemonic for authentication
+        # Note: The private WebSocket requires private_key for authentication
         self._ws_client: nautilus_pyo3.DydxWebSocketClient | None = None  # type: ignore[name-defined]
         self._ws_url = ws_url
 
         # Account tracking
         self._wallet_address: str | None = None
-        self._block_height: int = 0
         self._pyo3_account_id: nautilus_pyo3.AccountId | None = None
 
     @property
@@ -201,27 +199,35 @@ class DYDXv4ExecutionClient(LiveExecutionClient):
         # Load instruments
         await self._instrument_provider.initialize()
 
-        # Initialize wallet from mnemonic
-        mnemonic = self._config.mnemonic
-        if not mnemonic:
-            # Try to get from environment
-            import os
+        # Get private key from config or environment
+        import os
 
-            env_var = "DYDX_TESTNET_MNEMONIC" if self._is_testnet else "DYDX_MNEMONIC"
-            mnemonic = os.environ.get(env_var)
+        private_key = self._config.private_key
+        if not private_key:
+            env_var = "DYDX_TESTNET_PRIVATE_KEY" if self._is_testnet else "DYDX_PRIVATE_KEY"
+            private_key = os.environ.get(env_var)
 
-        if not mnemonic:
+        if not private_key:
             self._log.error(
-                f"No mnemonic provided. Set via config or "
-                f"{'DYDX_TESTNET_MNEMONIC' if self._is_testnet else 'DYDX_MNEMONIC'} env var",
+                f"No private key provided. Set via config or "
+                f"{'DYDX_TESTNET_PRIVATE_KEY' if self._is_testnet else 'DYDX_PRIVATE_KEY'} env var",
             )
             return
 
-        # Create wallet
-        self._wallet = nautilus_pyo3.DydxWallet.from_mnemonic(  # type: ignore[attr-defined]
-            mnemonic=mnemonic,
-        )
-        self._wallet_address = self._wallet.address()
+        # Get wallet address from config or environment
+        wallet_address = self._config.wallet_address
+        if not wallet_address:
+            env_var = "DYDX_TESTNET_WALLET_ADDRESS" if self._is_testnet else "DYDX_WALLET_ADDRESS"
+            wallet_address = os.environ.get(env_var)
+
+        if not wallet_address:
+            self._log.error(
+                f"No wallet address provided. Set via config or "
+                f"{'DYDX_TESTNET_WALLET_ADDRESS' if self._is_testnet else 'DYDX_WALLET_ADDRESS'} env var",
+            )
+            return
+
+        self._wallet_address = wallet_address
 
         # Set account ID based on wallet address
         account_id = AccountId(f"{DYDX_VENUE.value}-{self._wallet_address}-{self._subaccount}")
@@ -241,11 +247,12 @@ class DYDXv4ExecutionClient(LiveExecutionClient):
                 self._grpc_urls,
             )
 
-        # Create order submitter
+        # Create order submitter with private key (wallet owned internally)
         chain_id = "dydx-testnet-4" if self._is_testnet else "dydx-mainnet-1"
         self._order_submitter = nautilus_pyo3.DydxOrderSubmitter(  # type: ignore[attr-defined]
             grpc_client=self._grpc_client,
             http_client=self._http_client,
+            private_key=private_key,
             wallet_address=self._wallet_address,
             subaccount_number=self._subaccount,
             chain_id=chain_id,
@@ -254,9 +261,8 @@ class DYDXv4ExecutionClient(LiveExecutionClient):
         # Connect private WebSocket for account updates
         self._ws_client = nautilus_pyo3.DydxWebSocketClient.new_private(  # type: ignore[attr-defined]
             url=self._ws_url,
-            mnemonic=mnemonic,
-            account_index=self._subaccount,
-            authenticator_ids=[],
+            private_key=private_key,
+            authenticator_ids=self._config.authenticator_ids or [],
             account_id=nautilus_pyo3.AccountId(account_id.value),
             heartbeat=20,
         )
@@ -277,16 +283,16 @@ class DYDXv4ExecutionClient(LiveExecutionClient):
             subaccount_number=self._subaccount,
         )
 
-        # Subscribe to block height for order timing
+        # Subscribe to block height for order timing (BlockTimeMonitor in Rust)
         await self._ws_client.subscribe_block_height()
 
-        # Fetch initial block height via gRPC for order submission
+        # Fetch initial block height via gRPC and record it
         try:
-            self._block_height = await self._grpc_client.latest_block_height()
-            self._log.info(f"Initial block height: {self._block_height}", LogColor.BLUE)
+            initial_block_height = await self._grpc_client.latest_block_height()
+            self._order_submitter.set_block_height(initial_block_height)
+            self._log.info(f"Initial block height: {initial_block_height}", LogColor.BLUE)
         except Exception as e:
             self._log.warning(f"Failed to fetch initial block height: {e}")
-            self._block_height = 0
 
     async def _disconnect(self) -> None:
         # Delay to allow websocket to send any unsubscribe messages
@@ -301,6 +307,18 @@ class DYDXv4ExecutionClient(LiveExecutionClient):
     def _handle_msg(self, capsule: object) -> None:
         try:
             data = capsule_to_data(capsule)
+
+            # Record block height updates for order timing (BlockTimeMonitor)
+            if (
+                self._order_submitter is not None
+                and hasattr(data, "height")
+                and hasattr(data, "time")
+            ):
+                try:
+                    self._order_submitter.record_block(data.height, data.time)
+                except Exception as e:
+                    self._log.warning(f"Failed to record block: {e}")
+
             self._handle_data(data)
         except Exception as e:
             self._log.error(f"Error handling WebSocket message: {e}")
@@ -308,23 +326,10 @@ class DYDXv4ExecutionClient(LiveExecutionClient):
     # -- COMMANDS ---------------------------------------------------------------------------------
 
     async def _submit_order(self, command: SubmitOrder) -> None:
-        if self._order_submitter is None or self._wallet is None:
+        if self._order_submitter is None:
             self._generate_order_rejected(
                 command.order.client_order_id,
                 "Order submitter not initialized - connect first",
-            )
-            return
-
-        # Check block height is available for short-term orders
-        if self._block_height == 0:
-            reason = "Block height not initialized"
-            self._log.warning(
-                f"Cannot submit order {command.order.client_order_id}: {reason}",
-                LogColor.YELLOW,
-            )
-            self._generate_order_rejected(
-                command.order.client_order_id,
-                reason,
             )
             return
 
@@ -379,30 +384,25 @@ class DYDXv4ExecutionClient(LiveExecutionClient):
 
     async def _submit_market_order(self, order: MarketOrder, client_order_id_u32: int) -> None:
         assert self._order_submitter is not None  # Checked in _submit_order
-        assert self._wallet is not None  # Checked in _submit_order
         await self._order_submitter.submit_market_order(
-            wallet=self._wallet,
             instrument_id=str(order.instrument_id),
             client_order_id=client_order_id_u32,
             side=order.side.value,
             quantity=str(order.quantity),
-            block_height=self._block_height,
         )
 
     async def _submit_limit_order(self, order: LimitOrder, client_order_id_u32: int) -> None:
         assert self._order_submitter is not None  # Checked in _submit_order
-        assert self._wallet is not None  # Checked in _submit_order
         # Convert TimeInForce enum to int value
         tif_value = order.time_in_force.value
 
         self._log.info(
-            f"Submitting limit order with block_height={self._block_height}, "
+            f"Submitting limit order: "
             f"price={order.price}, qty={order.quantity}, tif={order.time_in_force}",
             LogColor.MAGENTA,
         )
 
         await self._order_submitter.submit_limit_order(
-            wallet=self._wallet,
             instrument_id=str(order.instrument_id),
             client_order_id=client_order_id_u32,
             side=order.side.value,
@@ -411,7 +411,6 @@ class DYDXv4ExecutionClient(LiveExecutionClient):
             time_in_force=tif_value,
             post_only=order.is_post_only,
             reduce_only=order.is_reduce_only,
-            block_height=self._block_height,
             expire_time=_get_expire_time_secs(order),
         )
 
@@ -421,9 +420,7 @@ class DYDXv4ExecutionClient(LiveExecutionClient):
         client_order_id_u32: int,
     ) -> None:
         assert self._order_submitter is not None  # Checked in _submit_order
-        assert self._wallet is not None  # Checked in _submit_order
         await self._order_submitter.submit_stop_market_order(
-            wallet=self._wallet,
             instrument_id=str(order.instrument_id),
             client_order_id=client_order_id_u32,
             side=order.side.value,
@@ -439,11 +436,9 @@ class DYDXv4ExecutionClient(LiveExecutionClient):
         client_order_id_u32: int,
     ) -> None:
         assert self._order_submitter is not None  # Checked in _submit_order
-        assert self._wallet is not None  # Checked in _submit_order
         tif_value = order.time_in_force.value
 
         await self._order_submitter.submit_stop_limit_order(
-            wallet=self._wallet,
             instrument_id=str(order.instrument_id),
             client_order_id=client_order_id_u32,
             side=order.side.value,
@@ -462,9 +457,7 @@ class DYDXv4ExecutionClient(LiveExecutionClient):
         client_order_id_u32: int,
     ) -> None:
         assert self._order_submitter is not None  # Checked in _submit_order
-        assert self._wallet is not None  # Checked in _submit_order
         await self._order_submitter.submit_take_profit_market_order(
-            wallet=self._wallet,
             instrument_id=str(order.instrument_id),
             client_order_id=client_order_id_u32,
             side=order.side.value,
@@ -480,11 +473,9 @@ class DYDXv4ExecutionClient(LiveExecutionClient):
         client_order_id_u32: int,
     ) -> None:
         assert self._order_submitter is not None  # Checked in _submit_order
-        assert self._wallet is not None  # Checked in _submit_order
         tif_value = order.time_in_force.value
 
         await self._order_submitter.submit_take_profit_limit_order(
-            wallet=self._wallet,
             instrument_id=str(order.instrument_id),
             client_order_id=client_order_id_u32,
             side=order.side.value,
@@ -519,7 +510,7 @@ class DYDXv4ExecutionClient(LiveExecutionClient):
         )
 
     async def _cancel_order(self, command: CancelOrder) -> None:
-        if self._order_submitter is None or self._wallet is None:
+        if self._order_submitter is None:
             self._generate_order_cancel_rejected(
                 command.client_order_id,
                 "Order submitter not initialized - connect first",
@@ -540,10 +531,8 @@ class DYDXv4ExecutionClient(LiveExecutionClient):
 
         try:
             await self._order_submitter.cancel_order(
-                wallet=self._wallet,
                 instrument_id=str(order.instrument_id),
                 client_order_id=client_order_id_u32,
-                block_height=self._block_height,
             )
             self._log.debug(f"Cancelled order {command.client_order_id}")
         except Exception as e:
@@ -553,7 +542,7 @@ class DYDXv4ExecutionClient(LiveExecutionClient):
             )
 
     async def _cancel_all_orders(self, command: CancelAllOrders) -> None:
-        if self._order_submitter is None or self._wallet is None:
+        if self._order_submitter is None:
             self._log.error("Order submitter not initialized - connect first")
             return
 
@@ -567,18 +556,14 @@ class DYDXv4ExecutionClient(LiveExecutionClient):
             self._log.info("No open orders to cancel")
             return
 
-        # Build batch cancel list: (instrument_id, client_order_id_u32)
+        # Build batch cancel list: (instrument_id, client_order_id_u32, time_in_force, expire_time_ns)
         cancel_list = []
         for order in open_orders:
             client_order_id_u32 = _client_order_id_to_u32(order.client_order_id)
-            cancel_list.append((str(order.instrument_id), client_order_id_u32))
+            cancel_list.append((str(order.instrument_id), client_order_id_u32, None, None))
 
         try:
-            await self._order_submitter.cancel_orders_batch(
-                wallet=self._wallet,
-                orders=cancel_list,
-                block_height=self._block_height,
-            )
+            await self._order_submitter.cancel_orders_batch(orders=cancel_list)
             self._log.debug(
                 f"Cancelled {len(cancel_list)} orders for "
                 f"{command.instrument_id or 'all instruments'}",
@@ -587,7 +572,7 @@ class DYDXv4ExecutionClient(LiveExecutionClient):
             self._log.error(f"Cancel all orders failed: {e}")
 
     async def _batch_cancel_orders(self, command: BatchCancelOrders) -> None:
-        if self._order_submitter is None or self._wallet is None:
+        if self._order_submitter is None:
             self._log.error("Order submitter not initialized - connect first")
             return
 
@@ -595,7 +580,7 @@ class DYDXv4ExecutionClient(LiveExecutionClient):
             self._log.info("No orders to cancel in batch")
             return
 
-        # Build batch cancel list: (instrument_id, client_order_id_u32)
+        # Build batch cancel list: (instrument_id, client_order_id_u32, time_in_force, expire_time_ns)
         cancel_list = []
         for cancel in command.cancels:
             # Get the order from cache to get instrument_id
@@ -606,18 +591,14 @@ class DYDXv4ExecutionClient(LiveExecutionClient):
                 )
                 continue
             client_order_id_u32 = _client_order_id_to_u32(cancel.client_order_id)
-            cancel_list.append((str(order.instrument_id), client_order_id_u32))
+            cancel_list.append((str(order.instrument_id), client_order_id_u32, None, None))
 
         if not cancel_list:
             self._log.warning("No valid orders to cancel in batch")
             return
 
         try:
-            await self._order_submitter.cancel_orders_batch(
-                wallet=self._wallet,
-                orders=cancel_list,
-                block_height=self._block_height,
-            )
+            await self._order_submitter.cancel_orders_batch(orders=cancel_list)
             self._log.debug(f"Batch cancelled {len(cancel_list)} orders")
         except Exception as e:
             self._log.error(f"Batch cancel orders failed: {e}")
