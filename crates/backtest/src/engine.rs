@@ -182,6 +182,7 @@ impl BacktestEngine {
         bar_execution: Option<bool>,
         bar_adaptive_high_low_ordering: Option<bool>,
         trade_execution: Option<bool>,
+        liquidity_consumption: Option<bool>,
         allow_cash_borrowing: Option<bool>,
         frozen_account: Option<bool>,
         price_protection_points: Option<u32>,
@@ -211,7 +212,7 @@ impl BacktestEngine {
             latency_model,
             bar_execution,
             trade_execution,
-            Some(true), // liquidity_consumption - enable for L2 orderbooks
+            liquidity_consumption, // liquidity_consumption - None defaults to false in SimulatedExchange
             reject_stop_orders,
             support_gtd_orders,
             support_contingent_orders,
@@ -788,6 +789,7 @@ mod tests {
                 vec![],
                 FillModel::default(),
                 FeeModelAny::default(),
+                None,
                 None,
                 None,
                 None,

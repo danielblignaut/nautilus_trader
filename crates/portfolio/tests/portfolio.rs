@@ -853,7 +853,7 @@ fn test_opening_one_long_position_updates_portfolio(
             .get(&Currency::USD())
             .unwrap()
             .as_decimal(),
-        dec!(-6445.89)
+        dec!(-11490.00)
     );
     assert!(portfolio
         .realized_pnls(&Venue::test_default())
@@ -872,13 +872,13 @@ fn test_opening_one_long_position_updates_portfolio(
             .unrealized_pnl(&instrument_audusd.id())
             .unwrap()
             .as_decimal(),
-        dec!(-6445.89)
+        dec!(-11490.00)
     );
     assert!(portfolio
         .realized_pnl(&instrument_audusd.id())
         .unwrap()
         .is_zero(),);
-    assert_eq!(portfolio.net_position(&instrument_audusd.id()), dec!(0.561));
+    assert_eq!(portfolio.net_position(&instrument_audusd.id()), dec!(1));
     assert!(portfolio.is_net_long(&instrument_audusd.id()));
     assert!(!portfolio.is_net_short(&instrument_audusd.id()));
     assert!(!portfolio.is_flat(&instrument_audusd.id()));
@@ -933,7 +933,7 @@ fn test_opening_one_long_position_updates_portfolio_with_bar(
             .get(&Currency::USD())
             .unwrap()
             .as_decimal(),
-        dec!(-6445.89)
+        dec!(-11490.00)
     );
     assert!(portfolio
         .realized_pnls(&Venue::test_default())
@@ -952,13 +952,13 @@ fn test_opening_one_long_position_updates_portfolio_with_bar(
             .unrealized_pnl(&instrument_audusd.id())
             .unwrap()
             .as_decimal(),
-        dec!(-6445.89)
+        dec!(-11490.00)
     );
     assert!(portfolio
         .realized_pnl(&instrument_audusd.id())
         .unwrap()
         .is_zero(),);
-    assert_eq!(portfolio.net_position(&instrument_audusd.id()), dec!(0.561));
+    assert_eq!(portfolio.net_position(&instrument_audusd.id()), dec!(1));
     assert!(portfolio.is_net_long(&instrument_audusd.id()));
     assert!(!portfolio.is_net_short(&instrument_audusd.id()));
     assert!(!portfolio.is_flat(&instrument_audusd.id()));

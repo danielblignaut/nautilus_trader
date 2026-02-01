@@ -26,7 +26,7 @@ use std::{
 use ahash::{AHashMap, AHashSet};
 use nautilus_core::{
     UUID4, UnixNanos,
-    correctness::{FAILED, check_equal, check_predicate_true},
+    correctness::{FAILED, check_equal},
 };
 use rust_decimal::{Decimal, prelude::ToPrimitive};
 use serde::{Deserialize, Serialize};

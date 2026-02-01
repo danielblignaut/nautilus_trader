@@ -4136,15 +4136,15 @@ fn test_handle_updated_order_event(mut execution_engine: ExecutionEngine) {
     ));
     execution_engine.process(order_updated_event);
 
-    // Note: This test was updated as the venue order ID currently does not change once assigned
+    // CA-2: Updated events now overwrite venue_order_id (cancel+replace venues issue new IDs)
     let cache = execution_engine.cache().borrow();
     let cached_order = cache
         .order(&order.client_order_id())
         .expect("Order should exist in cache");
     assert_eq!(
         cached_order.venue_order_id(),
-        Some(VenueOrderId::from("V-001")), // Original venue order ID should remain unchanged
-        "Order should retain original venue_order_id as it does not change once assigned"
+        Some(VenueOrderId::from("1")), // Updated venue order ID after OrderUpdated
+        "Order should have updated venue_order_id after OrderUpdated event"
     );
 }
 

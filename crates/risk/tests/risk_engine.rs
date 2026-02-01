@@ -3330,7 +3330,7 @@ fn test_partial_fill_and_full_fill_account_balance_correct() {}
 
 #[rstest]
 fn test_submit_order_with_gtd_expire_time_already_passed(
-    clock: TestClock,
+    mut clock: TestClock,
     strategy_id_ema_cross: StrategyId,
     client_id_binance: ClientId,
     trader_id: TraderId,
