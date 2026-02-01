@@ -863,7 +863,9 @@ impl DataEngine {
             DataResponse::FundingRates(r) => self.handle_funding_rates(&r.data),
             DataResponse::Bars(r) => self.handle_bars(&r.data),
             DataResponse::Book(r) => self.handle_book_response(&r.data),
-            _ => todo!("Handle other response types"),
+            _ => {
+                log::warn!("DataEngine::response: unhandled response type {resp:?}");
+            }
         }
 
         msgbus::send_response(&correlation_id, resp);

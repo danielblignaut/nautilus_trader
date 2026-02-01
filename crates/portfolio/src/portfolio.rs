@@ -336,7 +336,7 @@ impl Portfolio {
             },
             |account| match account {
                 AccountAny::Margin(margin_account) => margin_account.initial_margins(),
-                AccountAny::Cash(_) => {
+                AccountAny::Cash(_) | AccountAny::Betting(_) => {
                     log::warn!("Initial margins not applicable for cash account");
                     AHashMap::new()
                 }
@@ -358,7 +358,7 @@ impl Portfolio {
             },
             |account| match account {
                 AccountAny::Margin(margin_account) => margin_account.maintenance_margins(),
-                AccountAny::Cash(_) => {
+                AccountAny::Cash(_) | AccountAny::Betting(_) => {
                     log::warn!("Maintenance margins not applicable for cash account");
                     AHashMap::new()
                 }
@@ -580,8 +580,8 @@ impl Portfolio {
             return None;
         }
 
-        Some(Money::new(
-            realized.as_f64() + unrealized.as_f64(),
+        Some(Money::from_raw(
+            realized.raw + unrealized.raw,
             realized.currency,
         ))
     }
@@ -903,7 +903,7 @@ impl Portfolio {
             };
 
             let account = match account {
-                AccountAny::Cash(_) => continue,
+                AccountAny::Cash(_) | AccountAny::Betting(_) => continue,
                 AccountAny::Margin(margin_account) => margin_account,
             };
 
@@ -1566,7 +1566,7 @@ impl Portfolio {
         let price_type = match position.side {
             PositionSide::Long => PriceType::Bid,
             PositionSide::Short => PriceType::Ask,
-            _ => panic!("invalid `PositionSide`, was {}", position.side),
+            _ => PriceType::Last,
         };
 
         cache
@@ -1585,7 +1585,7 @@ impl Portfolio {
         &self,
         instrument: &InstrumentAny,
         account: &AccountAny,
-        side: OrderSide,
+        _side: OrderSide,
     ) -> Option<f64> {
         if !self.config.convert_to_account_base_currency {
             return Some(1.0); // No conversion needed
@@ -1597,20 +1597,24 @@ impl Portfolio {
                 let cache = self.cache.borrow();
 
                 if self.config.use_mark_xrates {
-                    return cache.get_mark_xrate(instrument.settlement_currency(), base_currency);
+                    let mark_xrate = cache.get_mark_xrate(instrument.settlement_currency(), base_currency);
+                    if mark_xrate.is_some() {
+                        return mark_xrate;
+                    }
+                    // Fallback to MID xrate if mark xrate not available
+                    return cache.get_xrate(
+                        instrument.id().venue,
+                        instrument.settlement_currency(),
+                        base_currency,
+                        PriceType::Mid,
+                    );
                 }
-
-                let price_type = if side == OrderSide::Buy {
-                    PriceType::Bid
-                } else {
-                    PriceType::Ask
-                };
 
                 cache.get_xrate(
                     instrument.id().venue,
                     instrument.settlement_currency(),
                     base_currency,
-                    price_type,
+                    PriceType::Mid,
                 )
             }
         }
@@ -1741,10 +1745,9 @@ fn update_order(
     cache: Rc<RefCell<Cache>>,
     clock: Rc<RefCell<dyn Clock>>,
     inner: Rc<RefCell<PortfolioState>>,
-    _config: PortfolioConfig,
+    config: PortfolioConfig,
     event: &OrderEventAny,
 ) {
-    let cache_ref = cache.borrow();
     let account_id = match event.account_id() {
         Some(account_id) => account_id,
         None => {
@@ -1752,29 +1755,35 @@ fn update_order(
         }
     };
 
-    let account = if let Some(account) = cache_ref.account(&account_id) {
-        account
-    } else {
-        log::error!("Cannot update order: no account registered for {account_id}");
-        return;
-    };
+    // First scope: check account and early returns - borrow is dropped after this block
+    let account = {
+        let cache_ref = cache.borrow();
+        let account = if let Some(account) = cache_ref.account(&account_id) {
+            account
+        } else {
+            log::error!("Cannot update order: no account registered for {account_id}");
+            return;
+        };
 
-    match account {
-        AccountAny::Cash(cash_account) => {
-            if !cash_account.base.calculate_account_state {
-                return;
-            }
+        // Check if we should process this account type
+        let should_process = match account {
+            AccountAny::Cash(cash_account) => cash_account.base.calculate_account_state,
+            AccountAny::Margin(margin_account) => margin_account.base.calculate_account_state,
+            AccountAny::Betting(betting_account) => betting_account.base.calculate_account_state,
+        };
+
+        if !should_process {
+            return;
         }
-        AccountAny::Margin(margin_account) => {
-            if !margin_account.base.calculate_account_state {
-                return;
-            }
-        }
-    }
+
+        // Clone the account to return it (cache_ref will be dropped here)
+        account.clone()
+    };
 
     match event {
         OrderEventAny::Accepted(_)
         | OrderEventAny::Canceled(_)
+        | OrderEventAny::Expired(_)
         | OrderEventAny::Rejected(_)
         | OrderEventAny::Updated(_)
         | OrderEventAny::Filled(_) => {}
@@ -1799,7 +1808,7 @@ fn update_order(
     }
 
     let instrument = if let Some(instrument_id) = cache_ref.instrument(&event.instrument_id()) {
-        instrument_id
+        instrument_id.clone()
     } else {
         log::error!(
             "Cannot update order: no instrument found for {}",
@@ -1808,18 +1817,25 @@ fn update_order(
         return;
     };
 
-    if let OrderEventAny::Filled(order_filled) = event {
-        let _ = inner.borrow().accounts.update_balances(
-            account.clone(),
-            instrument.clone(),
-            *order_filled,
-        );
+    let updated_account = if let OrderEventAny::Filled(order_filled) = event {
+        // Perform account balance update in a separate scope to drop the borrow before
+        // calling calculate_unrealized_pnl, which also needs to borrow inner
+        let (updated_account, _account_state) = {
+            let inner_ref = inner.borrow();
+            inner_ref.accounts.update_balances(
+                account.clone(),
+                instrument.clone(),
+                *order_filled,
+            )
+        };
 
+        // Now safe to create portfolio_clone and call calculate_unrealized_pnl
+        // since the previous inner.borrow() has been dropped
         let mut portfolio_clone = Portfolio {
             clock: clock.clone(),
             cache: cache.clone(),
             inner: inner.clone(),
-            config: PortfolioConfig::default(), // TODO: TBD
+            config,
         };
 
         match portfolio_clone.calculate_unrealized_pnl(&order_filled.instrument_id) {
@@ -1836,19 +1852,30 @@ fn update_order(
                 );
             }
         }
-    }
+
+        updated_account
+    } else {
+        account.clone()
+    };
 
     let orders_open = cache_ref.orders_open(None, Some(&event.instrument_id()), None, None, None);
 
     let account_state = inner.borrow_mut().accounts.update_orders(
-        account,
+        &updated_account,
         instrument.clone(),
         orders_open,
         clock.borrow().timestamp_ns(),
     );
 
-    let mut cache_ref = cache.borrow_mut();
-    cache_ref.update_account(account.clone()).unwrap();
+    // Drop cache_ref before mutable borrow (orders_open is already dropped after being moved)
+    drop(cache_ref);
+
+    {
+        let mut cache_ref = cache.borrow_mut();
+        cache_ref.update_account(updated_account).unwrap();
+    }
+    // cache borrow is now dropped before publish to avoid re-entrant borrow panic
+    // (publish_account_state synchronously invokes update_account which borrows cache)
 
     if let Some((_, account_state)) = account_state {
         msgbus::publish_account_state(

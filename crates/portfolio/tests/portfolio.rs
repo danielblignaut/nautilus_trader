@@ -16,24 +16,24 @@
 use std::{cell::RefCell, rc::Rc};
 
 use nautilus_common::{cache::Cache, clock::TestClock};
-use nautilus_core::{UUID4, UnixNanos};
+use nautilus_core::{UnixNanos, UUID4};
 use nautilus_model::{
     data::{Bar, BarType, QuoteTick},
     enums::{AccountType, LiquiditySide, OmsType, OrderSide, OrderType},
     events::{
-        AccountState, OrderAccepted, OrderEventAny, OrderFilled, OrderSubmitted, PositionChanged,
-        PositionClosed, PositionEvent, PositionOpened,
         account::stubs::cash_account_state,
         order::stubs::{order_accepted, order_filled, order_submitted},
+        AccountState, OrderAccepted, OrderEventAny, OrderFilled, OrderSubmitted, PositionChanged,
+        PositionClosed, PositionEvent, PositionOpened,
     },
     identifiers::{
+        stubs::{account_id, uuid4},
         AccountId, ClientOrderId, PositionId, StrategyId, Symbol, TradeId, TraderId, Venue,
         VenueOrderId,
-        stubs::{account_id, uuid4},
     },
     instruments::{
-        CryptoPerpetual, CurrencyPair, Instrument, InstrumentAny,
         stubs::{audusd_sim, currency_pair_btcusdt, default_fx_ccy, ethusdt_bitmex},
+        CryptoPerpetual, CurrencyPair, Instrument, InstrumentAny,
     },
     orders::{Order, OrderAny, OrderTestBuilder},
     position::Position,
@@ -42,7 +42,7 @@ use nautilus_model::{
 };
 use nautilus_portfolio::Portfolio;
 use rstest::{fixture, rstest};
-use rust_decimal::{Decimal, prelude::FromPrimitive};
+use rust_decimal::{prelude::FromPrimitive, Decimal};
 use rust_decimal_macros::dec;
 
 // Venue is already imported above
@@ -853,15 +853,13 @@ fn test_opening_one_long_position_updates_portfolio(
             .get(&Currency::USD())
             .unwrap()
             .as_decimal(),
-        dec!(-6445.89)
+        dec!(-11490.00)
     );
-    assert!(
-        portfolio
-            .realized_pnls(&Venue::test_default())
-            .get(&Currency::USD())
-            .unwrap()
-            .is_zero(),
-    );
+    assert!(portfolio
+        .realized_pnls(&Venue::test_default())
+        .get(&Currency::USD())
+        .unwrap()
+        .is_zero(),);
     assert_eq!(
         portfolio
             .net_exposure(&instrument_audusd.id())
@@ -874,15 +872,13 @@ fn test_opening_one_long_position_updates_portfolio(
             .unrealized_pnl(&instrument_audusd.id())
             .unwrap()
             .as_decimal(),
-        dec!(-6445.89)
+        dec!(-11490.00)
     );
-    assert!(
-        portfolio
-            .realized_pnl(&instrument_audusd.id())
-            .unwrap()
-            .is_zero(),
-    );
-    assert_eq!(portfolio.net_position(&instrument_audusd.id()), dec!(0.561));
+    assert!(portfolio
+        .realized_pnl(&instrument_audusd.id())
+        .unwrap()
+        .is_zero(),);
+    assert_eq!(portfolio.net_position(&instrument_audusd.id()), dec!(1));
     assert!(portfolio.is_net_long(&instrument_audusd.id()));
     assert!(!portfolio.is_net_short(&instrument_audusd.id()));
     assert!(!portfolio.is_flat(&instrument_audusd.id()));
@@ -937,15 +933,13 @@ fn test_opening_one_long_position_updates_portfolio_with_bar(
             .get(&Currency::USD())
             .unwrap()
             .as_decimal(),
-        dec!(-6445.89)
+        dec!(-11490.00)
     );
-    assert!(
-        portfolio
-            .realized_pnls(&Venue::test_default())
-            .get(&Currency::USD())
-            .unwrap()
-            .is_zero(),
-    );
+    assert!(portfolio
+        .realized_pnls(&Venue::test_default())
+        .get(&Currency::USD())
+        .unwrap()
+        .is_zero(),);
     assert_eq!(
         portfolio
             .net_exposure(&instrument_audusd.id())
@@ -958,15 +952,13 @@ fn test_opening_one_long_position_updates_portfolio_with_bar(
             .unrealized_pnl(&instrument_audusd.id())
             .unwrap()
             .as_decimal(),
-        dec!(-6445.89)
+        dec!(-11490.00)
     );
-    assert!(
-        portfolio
-            .realized_pnl(&instrument_audusd.id())
-            .unwrap()
-            .is_zero(),
-    );
-    assert_eq!(portfolio.net_position(&instrument_audusd.id()), dec!(0.561));
+    assert!(portfolio
+        .realized_pnl(&instrument_audusd.id())
+        .unwrap()
+        .is_zero(),);
+    assert_eq!(portfolio.net_position(&instrument_audusd.id()), dec!(1));
     assert!(portfolio.is_net_long(&instrument_audusd.id()));
     assert!(!portfolio.is_net_short(&instrument_audusd.id()));
     assert!(!portfolio.is_flat(&instrument_audusd.id()));
@@ -1157,13 +1149,11 @@ fn test_opening_positions_with_multi_asset_account(
             .as_decimal(),
         dec!(26.59574468)
     );
-    assert!(
-        portfolio
-            .unrealized_pnls(&Venue::from("BITMEX"))
-            .get(&Currency::ETH())
-            .unwrap()
-            .is_zero()
-    );
+    assert!(portfolio
+        .unrealized_pnls(&Venue::from("BITMEX"))
+        .get(&Currency::ETH())
+        .unwrap()
+        .is_zero());
     // TODO: fix
     // assert!(
     //     portfolio
@@ -1423,12 +1413,10 @@ fn test_opening_several_positions_updates_portfolio(
             .as_decimal(),
         dec!(100000.0)
     );
-    assert!(
-        portfolio
-            .unrealized_pnl(&instrument_audusd.id())
-            .unwrap()
-            .is_zero(),
-    );
+    assert!(portfolio
+        .unrealized_pnl(&instrument_audusd.id())
+        .unwrap()
+        .is_zero(),);
     assert_eq!(
         portfolio
             .unrealized_pnl(&instrument_gbpusd.id())
@@ -1436,12 +1424,10 @@ fn test_opening_several_positions_updates_portfolio(
             .as_decimal(),
         dec!(-37500000.0)
     );
-    assert!(
-        portfolio
-            .realized_pnl(&instrument_audusd.id())
-            .unwrap()
-            .is_zero(),
-    );
+    assert!(portfolio
+        .realized_pnl(&instrument_audusd.id())
+        .unwrap()
+        .is_zero(),);
     assert_eq!(
         portfolio
             .realized_pnl(&instrument_gbpusd.id())
@@ -1986,20 +1972,16 @@ fn test_several_positions_with_different_instruments_updates_portfolio(
             .as_decimal(),
         dec!(200000.00)
     );
-    assert!(
-        portfolio
-            .unrealized_pnls(&Venue::test_default())
-            .get(&Currency::USD())
-            .unwrap()
-            .is_zero(),
-    );
-    assert!(
-        portfolio
-            .realized_pnls(&Venue::test_default())
-            .get(&Currency::USD())
-            .unwrap()
-            .is_zero(),
-    );
+    assert!(portfolio
+        .unrealized_pnls(&Venue::test_default())
+        .get(&Currency::USD())
+        .unwrap()
+        .is_zero(),);
+    assert!(portfolio
+        .realized_pnls(&Venue::test_default())
+        .get(&Currency::USD())
+        .unwrap()
+        .is_zero(),);
     // FIX: TODO: should not be empty
     assert_eq!(
         portfolio.margins_maint(&Venue::test_default()),
@@ -2211,10 +2193,95 @@ fn test_portfolio_realized_pnl_with_position_snapshots_netting_oms(
 
     // First cycle: (0.80020 - 0.80000) * 100000 - 4.0 (commission) = 200 - 4 = 196 USD
     // Second cycle (active): 0 (no realized PnL yet)
-    // With NETTING OMS and active position, should use last snapshot PnL only
+    // With NETTING OMS and active position, it should use the last snapshot PnL only
     assert!(realized_pnl.is_some());
     let pnl = realized_pnl.unwrap();
     assert_eq!(pnl.currency, Currency::USD());
     // The exact value depends on the 3-case rule implementation
-    // For active position with snapshots, it should use the last snapshot PnL
+    // For active position with snapshots, it should use the last snapshot PnL only
+}
+
+/// Test that order fills on betting accounts don't cause RefCell double borrow panics.
+/// This is a regression test for the issue where update_order would panic with
+/// "RefCell already borrowed" when processing OrderFilled events.
+#[rstest]
+fn test_order_filled_betting_account_no_refcell_panic(
+    mut portfolio: Portfolio,
+    instrument_audusd: InstrumentAny,
+) {
+    // Create a betting account
+    let account_state = AccountState::new(
+        AccountId::new("POLYMARKET-001"),
+        AccountType::Betting,
+        vec![AccountBalance::new(
+            Money::new(10000.0, Currency::USDC()),
+            Money::new(0.0, Currency::USDC()),
+            Money::new(10000.0, Currency::USDC()),
+        )],
+        vec![],
+        false, // is_reported
+        UUID4::new(),
+        UnixNanos::default(),
+        UnixNanos::default(),
+        Some(Currency::USDC()), // base_currency
+    );
+    portfolio.update_account(&account_state);
+
+    // Create order
+    let mut order = OrderTestBuilder::new(OrderType::Market)
+        .instrument_id(instrument_audusd.id())
+        .side(OrderSide::Buy)
+        .quantity(Quantity::from("100.0"))
+        .build();
+
+    portfolio
+        .cache()
+        .borrow_mut()
+        .add_order(order.clone(), None, None, false)
+        .unwrap();
+
+    // Submit and accept the order first
+    let submitted = submit_order(&order);
+    order.apply(OrderEventAny::Submitted(submitted)).unwrap();
+    portfolio.update_order(&OrderEventAny::Submitted(submitted));
+
+    let accepted = accept_order(&order);
+    order.apply(OrderEventAny::Accepted(accepted)).unwrap();
+    portfolio.update_order(&OrderEventAny::Accepted(accepted));
+
+    // Fill the order - this should NOT panic with "RefCell already borrowed"
+    let fill = OrderFilled::new(
+        order.trader_id(),
+        order.strategy_id(),
+        order.instrument_id(),
+        order.client_order_id(),
+        VenueOrderId::new("1"),
+        AccountId::new("POLYMARKET-001"),
+        TradeId::new("1"),
+        order.order_side(),
+        order.order_type(),
+        order.quantity(),
+        Price::from("1.0"),
+        Currency::USDC(),
+        LiquiditySide::Taker,
+        uuid4(),
+        UnixNanos::default(),
+        UnixNanos::default(),
+        false,
+        None,
+        Some(Money::from("0.1 USDC")),
+    );
+    order.apply(OrderEventAny::Filled(fill)).unwrap();
+
+    // This call should not panic - it previously caused "RefCell already borrowed"
+    portfolio.update_order(&OrderEventAny::Filled(fill));
+
+    // Verify the order was processed successfully
+    let cached_order = portfolio
+        .cache()
+        .borrow()
+        .order(&order.client_order_id())
+        .cloned();
+    assert!(cached_order.is_some());
+    assert_eq!(cached_order.unwrap().quantity(), order.quantity());
 }

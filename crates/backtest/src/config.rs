@@ -212,6 +212,10 @@ impl NautilusKernelConfig for BacktestEngineConfig {
     fn streaming(&self) -> Option<StreamingConfig> {
         self.streaming.clone()
     }
+
+    fn bypass_logging(&self) -> bool {
+        self.bypass_logging
+    }
 }
 
 impl Default for BacktestEngineConfig {

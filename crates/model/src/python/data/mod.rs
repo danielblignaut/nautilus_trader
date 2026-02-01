@@ -35,8 +35,8 @@ use nautilus_core::ffi::cvec::CVec;
 use pyo3::{exceptions::PyValueError, prelude::*, types::PyCapsule};
 
 use crate::data::{
-    Bar, Data, DataType, FundingRateUpdate, IndexPriceUpdate, MarkPriceUpdate, OrderBookDelta,
-    QuoteTick, TradeTick, close::InstrumentClose, is_monotonically_increasing_by_init,
+    close::InstrumentClose, is_monotonically_increasing_by_init, Bar, Data, DataType,
+    FundingRateUpdate, IndexPriceUpdate, MarkPriceUpdate, OrderBookDelta, QuoteTick, TradeTick,
 };
 
 const ERROR_MONOTONICITY: &str = "`data` was not monotonically increasing by the `ts_init` field";

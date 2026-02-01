@@ -288,7 +288,9 @@ impl Logger {
             config: config.clone(),
         };
 
-        set_boxed_logger(Box::new(logger))?;
+        if let Err(e) = set_boxed_logger(Box::new(logger)) {
+            log::warn!("Nautilus logger not set as log implementation (external logger active): {e}");
+        }
 
         // Store the sender globally so additional guards can be created
         if LOGGER_TX.set(tx).is_err() {

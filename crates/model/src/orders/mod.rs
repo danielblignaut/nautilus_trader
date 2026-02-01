@@ -88,7 +88,7 @@ pub const LIMIT_ORDER_TYPES: &[OrderType] = &[
     OrderType::Limit,
     OrderType::StopLimit,
     OrderType::LimitIfTouched,
-    OrderType::MarketIfTouched,
+    OrderType::MarketToLimit,
 ];
 
 /// Order statuses for locally active orders (pre-submission to venue).
@@ -240,6 +240,7 @@ impl OrderStatus {
             (Self::PendingUpdate, OrderEventAny::PendingUpdate(_)) => Self::PendingUpdate,  // Allow multiple requests
             (Self::PendingUpdate, OrderEventAny::PendingCancel(_)) => Self::PendingCancel,
             (Self::PendingUpdate, OrderEventAny::ModifyRejected(_)) => Self::PendingUpdate,  // Handled by modify_rejected to restore previous_status
+            (Self::PendingUpdate, OrderEventAny::Updated(_)) => Self::PendingUpdate,  // Handled by updated() to restore previous_status
             (Self::PendingUpdate, OrderEventAny::Filled(_)) => Self::Filled,
             (Self::PendingCancel, OrderEventAny::Rejected(_)) => Self::Rejected,
             (Self::PendingCancel, OrderEventAny::PendingCancel(_)) => Self::PendingCancel,  // Allow multiple requests
@@ -465,12 +466,7 @@ pub trait Order: 'static + Send {
     }
 
     fn is_inflight(&self) -> bool {
-        if let Some(emulation_trigger) = self.emulation_trigger()
-            && emulation_trigger != TriggerType::NoTrigger
-        {
-            return false;
-        }
-
+        // OP-3: Emulated SUBMITTED orders are also considered inflight (matching Python)
         matches!(
             self.status(),
             OrderStatus::Submitted | OrderStatus::PendingCancel | OrderStatus::PendingUpdate
@@ -782,6 +778,11 @@ impl OrderCore {
     }
 
     fn updated(&mut self, event: &OrderUpdated) {
+        // Restore previous status when coming from PendingUpdate (normal modify success path)
+        if let Some(prev) = self.previous_status.take() {
+            self.status = prev;
+        }
+
         if let Some(venue_order_id) = &event.venue_order_id
             && (self.venue_order_id.is_none()
                 || venue_order_id != self.venue_order_id.as_ref().unwrap())
@@ -828,6 +829,12 @@ impl OrderCore {
         }
 
         self.set_avg_px(event.last_qty, event.last_px);
+
+        if let Some(commission) = event.commission {
+            let currency = commission.currency;
+            let existing = self.commissions.entry(currency).or_insert(Money::new(0.0, currency));
+            *existing = Money::from_raw(existing.raw + commission.raw, currency);
+        }
     }
 
     fn set_avg_px(&mut self, last_qty: Quantity, last_px: Price) {

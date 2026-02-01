@@ -1107,6 +1107,9 @@ async fn drain_buffer(pool: &PgPool, buffer: &mut VecDeque<DatabaseQuery>) {
                 AccountAny::Margin(account) => {
                     DatabaseQueries::add_account(pool, "MARGIN", updated, Box::new(account)).await
                 }
+                AccountAny::Betting(account) => {
+                    DatabaseQueries::add_account(pool, "BETTING", updated, Box::new(account)).await
+                }
             },
             DatabaseQuery::AddSignal(signal) => DatabaseQueries::add_signal(pool, &signal).await,
             DatabaseQuery::AddCustom(data) => DatabaseQueries::add_custom_data(pool, &data).await,

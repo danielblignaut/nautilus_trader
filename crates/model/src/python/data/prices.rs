@@ -14,28 +14,27 @@
 // -------------------------------------------------------------------------------------------------
 
 use std::{
-    collections::{HashMap, hash_map::DefaultHasher},
+    collections::{hash_map::DefaultHasher, HashMap},
     hash::{Hash, Hasher},
     str::FromStr,
 };
 
 use nautilus_core::{
-    UnixNanos,
     python::{
-        IntoPyObjectNautilusExt,
         serialization::{from_dict_pyo3, to_dict_pyo3},
-        to_pyvalue_err,
+        to_pyvalue_err, IntoPyObjectNautilusExt,
     },
     serialization::{
-        Serializable,
         msgpack::{FromMsgPack, ToMsgPack},
+        Serializable,
     },
+    UnixNanos,
 };
 use pyo3::{
-    IntoPyObjectExt,
     prelude::*,
     pyclass::CompareOp,
     types::{PyDict, PyInt, PyString, PyTuple},
+    IntoPyObjectExt,
 };
 
 use crate::{

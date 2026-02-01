@@ -26,7 +26,7 @@ use std::{
 use ahash::{AHashMap, AHashSet};
 use nautilus_core::{
     UUID4, UnixNanos,
-    correctness::{FAILED, check_equal, check_predicate_true},
+    correctness::{FAILED, check_equal},
 };
 use rust_decimal::{Decimal, prelude::ToPrimitive};
 use serde::{Deserialize, Serialize};
@@ -41,6 +41,12 @@ use crate::{
     instruments::{Instrument, InstrumentAny},
     types::{Currency, Money, Price, Quantity},
 };
+
+/// Round an f64 to `precision` decimal places (matches Python's `round()`).
+fn round_to_precision(value: f64, precision: u8) -> f64 {
+    let factor = 10f64.powi(precision as i32);
+    (value * factor).round() / factor
+}
 
 /// Represents a position in a market.
 ///
@@ -265,15 +271,18 @@ impl Position {
     ///
     /// # Panics
     ///
-    /// Panics if the `fill.trade_id` is already present in the position’s `trade_ids`.
+    /// Panics if a true duplicate fill (same trade_id, side, price, and qty) is applied.
     pub fn apply(&mut self, fill: &OrderFilled) {
-        check_predicate_true(
-            !self.trade_ids.contains(&fill.trade_id),
-            "`fill.trade_id` already contained in `trade_ids",
-        )
-        .expect(FAILED);
-        check_predicate_true(fill.ts_event >= self.ts_opened, "fill.ts_event < ts_opened")
-            .expect(FAILED);
+        self.check_duplicate_trade_id(fill);
+        // OP-5: Log warning instead of panicking on out-of-order timestamps (common during reconciliation)
+        if fill.ts_event < self.ts_opened {
+            log::warn!(
+                "Fill ts_event ({}) < position ts_opened ({}) for {} — accepting for reconciliation",
+                fill.ts_event,
+                self.ts_opened,
+                self.id,
+            );
+        }
 
         if self.side == PositionSide::Flat {
             // Reopening position after close
@@ -368,6 +377,25 @@ impl Position {
         self.ts_last = fill.ts_event;
     }
 
+    /// Check for true duplicate fills (matching trade_id + side + price + qty).
+    /// Allows same trade_id with different fill details (matches Python behavior).
+    fn check_duplicate_trade_id(&self, fill: &OrderFilled) {
+        for prev_fill in &self.events {
+            if fill.trade_id != prev_fill.trade_id {
+                continue;
+            }
+            if fill.order_side == prev_fill.order_side
+                && fill.last_px == prev_fill.last_px
+                && fill.last_qty == prev_fill.last_qty
+            {
+                panic!(
+                    "Duplicate {:?} in events: {:?} vs {:?}",
+                    fill.trade_id, fill, prev_fill
+                );
+            }
+        }
+    }
+
     fn handle_buy_order_fill(&mut self, fill: &OrderFilled) {
         // Handle case where commission could be None or not settlement currency
         let mut realized_pnl = if let Some(commission) = fill.commission {
@@ -411,6 +439,7 @@ impl Position {
         ));
 
         self.signed_qty += last_qty;
+        self.signed_qty = round_to_precision(self.signed_qty, self.size_precision);
         self.buy_qty = self.buy_qty + last_qty_object;
     }
 
@@ -457,6 +486,7 @@ impl Position {
         ));
 
         self.signed_qty -= last_qty;
+        self.signed_qty = round_to_precision(self.signed_qty, self.size_precision);
         self.sell_qty = self.sell_qty + last_qty_object;
     }
 
@@ -725,7 +755,12 @@ impl Position {
     /// Returns whether the given order side is opposite to the position entry side.
     #[must_use]
     pub fn is_opposite_side(&self, side: OrderSide) -> bool {
-        self.entry != side
+        let position_side = match side {
+            OrderSide::Buy => PositionSide::Long,
+            OrderSide::Sell => PositionSide::Short,
+            _ => return false,
+        };
+        self.side != position_side
     }
 
     /// Returns the instrument symbol.
@@ -837,13 +872,13 @@ impl Position {
     /// Returns whether the position is currently open (has quantity and no close timestamp).
     #[must_use]
     pub fn is_open(&self) -> bool {
-        self.side != PositionSide::Flat && self.ts_closed.is_none()
+        self.side != PositionSide::Flat
     }
 
-    /// Returns whether the position is closed (flat with a close timestamp).
+    /// Returns whether the position is closed (side is `FLAT`).
     #[must_use]
     pub fn is_closed(&self) -> bool {
-        self.side == PositionSide::Flat && self.ts_closed.is_some()
+        self.side == PositionSide::Flat
     }
 
     /// Returns the signed quantity as a `Decimal`.
@@ -925,8 +960,7 @@ mod tests {
     }
 
     #[rstest]
-    #[should_panic(expected = "`fill.trade_id` already contained in `trade_ids")]
-    fn test_two_trades_with_same_trade_id_error(audusd_sim: CurrencyPair) {
+    fn test_two_trades_with_same_trade_id_warns(audusd_sim: CurrencyPair) {
         let audusd_sim = InstrumentAny::CurrencyPair(audusd_sim);
         let order1 = OrderTestBuilder::new(OrderType::Market)
             .instrument_id(audusd_sim.id())

@@ -19,7 +19,8 @@
 
 //! Provides a `BacktestExecutionClient` implementation for backtesting.
 
-use std::{cell::RefCell, fmt::Debug, rc::Rc};
+use nautilus_model::events::OrderEventAny;
+use std::{cell::RefCell, collections::VecDeque, fmt::Debug, rc::Rc};
 
 use async_trait::async_trait;
 use nautilus_common::{
@@ -36,7 +37,7 @@ use nautilus_common::{
 use nautilus_core::{SharedCell, UnixNanos, WeakCell};
 use nautilus_execution::client::core::ExecutionClientCore;
 use nautilus_model::{
-    accounts::AccountAny,
+    accounts::{AccountAny, AccountFactory},
     enums::OmsType,
     identifiers::{AccountId, ClientId, ClientOrderId, TraderId, Venue},
     orders::OrderAny,
@@ -44,6 +45,34 @@ use nautilus_model::{
 };
 
 use crate::exchange::SimulatedExchange;
+
+// Thread-local deferred order event queue to avoid RefCell re-borrow panics.
+// The BacktestExecutionClient pushes events here instead of sending them synchronously,
+// and the BacktestEngine drains them after each iteration.
+thread_local! {
+    static DEFERRED_ORDER_EVENTS: RefCell<VecDeque<OrderEventAny>> = RefCell::new(VecDeque::new());
+}
+
+/// Drain all deferred order events and send them to the execution engine.
+pub fn drain_deferred_order_events() {
+    let events: VecDeque<OrderEventAny> =
+        DEFERRED_ORDER_EVENTS.with(|q| std::mem::take(&mut *q.borrow_mut()));
+    if !events.is_empty() {
+        let endpoint = MessagingSwitchboard::exec_engine_process();
+        for event in events {
+            msgbus::send_order_event(endpoint, event);
+        }
+    }
+}
+
+/// Add an order event to the deferred queue.
+///
+/// This is used by matching engines to avoid RefCell re-borrow panics
+/// during backtest execution. Events are queued and sent after the current
+/// processing iteration completes.
+pub fn defer_order_event(event: OrderEventAny) {
+    DEFERRED_ORDER_EVENTS.with(|q| q.borrow_mut().push_back(event));
+}
 
 /// Execution client implementation for backtesting trading operations.
 ///
@@ -103,7 +132,14 @@ impl BacktestExecutionClient {
         let factory = OrderEventFactory::new(trader_id, account_id, account_type, base_currency);
 
         if !frozen_account {
-            // TODO Register calculated account
+            // Register calculated account for dynamic balance computation from fills
+            let issuer = exchange_id.as_str();
+            if let Err(e) = AccountFactory::register_calculated_account(issuer) {
+                log::debug!(
+                    "AccountFactory registration skipped (may already be registered): {}",
+                    e
+                );
+            }
         }
 
         Self {
@@ -184,8 +220,8 @@ impl ExecutionClient for BacktestExecutionClient {
         let order = self.get_order(&cmd.client_order_id)?;
         let ts_init = self.clock.borrow().timestamp_ns();
         let event = self.factory.generate_order_submitted(&order, ts_init);
-        let endpoint = MessagingSwitchboard::exec_engine_process();
-        msgbus::send_order_event(endpoint, event);
+        // Defer the order event to avoid RefCell re-borrow panic
+        DEFERRED_ORDER_EVENTS.with(|q| q.borrow_mut().push_back(event));
 
         if let Some(exchange) = self.exchange.upgrade() {
             exchange
@@ -199,10 +235,10 @@ impl ExecutionClient for BacktestExecutionClient {
 
     fn submit_order_list(&self, cmd: &SubmitOrderList) -> anyhow::Result<()> {
         let ts_init = self.clock.borrow().timestamp_ns();
-        let endpoint = MessagingSwitchboard::exec_engine_process();
         for order in &cmd.order_list.orders {
             let event = self.factory.generate_order_submitted(order, ts_init);
-            msgbus::send_order_event(endpoint, event);
+            // Defer the order event to avoid RefCell re-borrow panic
+            DEFERRED_ORDER_EVENTS.with(|q| q.borrow_mut().push_back(event));
         }
 
         if let Some(exchange) = self.exchange.upgrade() {

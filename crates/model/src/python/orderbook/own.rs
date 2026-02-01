@@ -14,19 +14,19 @@
 // -------------------------------------------------------------------------------------------------
 
 use std::{
-    collections::{HashSet, hash_map::DefaultHasher},
+    collections::{hash_map::DefaultHasher, HashSet},
     hash::{Hash, Hasher},
 };
 
 use indexmap::IndexMap;
-use nautilus_core::python::{IntoPyObjectNautilusExt, to_pyruntime_err};
-use pyo3::{Python, prelude::*, pyclass::CompareOp};
+use nautilus_core::python::{to_pyruntime_err, IntoPyObjectNautilusExt};
+use pyo3::{prelude::*, pyclass::CompareOp, Python};
 use rust_decimal::Decimal;
 
 use crate::{
     enums::{OrderSide, OrderStatus, OrderType, TimeInForce},
     identifiers::{ClientOrderId, InstrumentId, TraderId, VenueOrderId},
-    orderbook::{OwnBookOrder, own::OwnOrderBook},
+    orderbook::{own::OwnOrderBook, OwnBookOrder},
     types::{Price, Quantity},
 };
 

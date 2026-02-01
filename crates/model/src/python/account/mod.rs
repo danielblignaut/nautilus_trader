@@ -13,15 +13,16 @@
 //  limitations under the License.
 // -------------------------------------------------------------------------------------------------
 
+pub mod betting;
 pub mod cash;
 pub mod margin;
 pub mod transformer;
 
 use nautilus_core::python::to_pyvalue_err;
-use pyo3::{Py, PyAny, PyResult, Python, conversion::IntoPyObjectExt};
+use pyo3::{conversion::IntoPyObjectExt, Py, PyAny, PyResult, Python};
 
 use crate::{
-    accounts::{AccountAny, CashAccount, MarginAccount},
+    accounts::{AccountAny, BettingAccount, CashAccount, MarginAccount},
     enums::AccountType,
 };
 
@@ -43,6 +44,9 @@ pub fn pyobject_to_account_any(py: Python, account: Py<PyAny>) -> PyResult<Accou
     } else if account_type == AccountType::Margin {
         let margin = account.extract::<MarginAccount>(py)?;
         Ok(AccountAny::Margin(margin))
+    } else if account_type == AccountType::Betting {
+        let betting = account.extract::<BettingAccount>(py)?;
+        Ok(AccountAny::Betting(betting))
     } else {
         Err(to_pyvalue_err("Unsupported account type"))
     }
@@ -57,5 +61,6 @@ pub fn account_any_to_pyobject(py: Python, account: AccountAny) -> PyResult<Py<P
     match account {
         AccountAny::Cash(account) => account.into_py_any(py),
         AccountAny::Margin(account) => account.into_py_any(py),
+        AccountAny::Betting(account) => account.into_py_any(py),
     }
 }

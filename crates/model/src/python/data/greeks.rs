@@ -16,8 +16,8 @@
 use pyo3::prelude::*;
 
 use crate::data::greeks::{
-    BlackScholesGreeksResult, black_scholes_greeks, imply_vol, imply_vol_and_greeks,
-    refine_vol_and_greeks,
+    black_scholes_greeks, imply_vol, imply_vol_and_greeks, refine_vol_and_greeks,
+    BlackScholesGreeksResult,
 };
 
 #[cfg(feature = "python")]

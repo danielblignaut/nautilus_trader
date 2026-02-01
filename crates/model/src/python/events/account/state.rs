@@ -16,11 +16,11 @@
 use std::str::FromStr;
 
 use nautilus_core::{
-    UUID4,
     python::{
-        IntoPyObjectNautilusExt,
         parsing::{get_required, get_required_list, get_required_parsed, get_required_string},
+        IntoPyObjectNautilusExt,
     },
+    UUID4,
 };
 use pyo3::{basic::CompareOp, prelude::*, types::PyDict};
 

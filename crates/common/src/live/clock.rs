@@ -279,6 +279,10 @@ impl Clock for LiveClock {
         self.cancel_timers();
         self.callbacks.clear();
     }
+
+    fn set_time(&mut self, time: UnixNanos) {
+        self.time.set_time(time);
+    }
 }
 
 // Helper struct to stream events from the heap

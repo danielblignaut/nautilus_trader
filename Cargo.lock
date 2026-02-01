@@ -4873,6 +4873,7 @@ dependencies = [
  "nautilus-portfolio",
  "nautilus-risk",
  "nautilus-system",
+ "nautilus-trading",
  "pyo3",
  "rstest",
  "rust_decimal",

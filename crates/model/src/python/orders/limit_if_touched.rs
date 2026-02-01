@@ -15,8 +15,8 @@
 
 use indexmap::IndexMap;
 use nautilus_core::{
-    UUID4,
     python::{to_pyruntime_err, to_pyvalue_err},
+    UUID4,
 };
 use pyo3::prelude::*;
 use rust_decimal::Decimal;
@@ -30,7 +30,7 @@ use crate::{
     identifiers::{
         ClientOrderId, ExecAlgorithmId, InstrumentId, OrderListId, StrategyId, TraderId,
     },
-    orders::{LimitIfTouchedOrder, Order, OrderCore, str_indexmap_to_ustr},
+    orders::{str_indexmap_to_ustr, LimitIfTouchedOrder, Order, OrderCore},
     python::events::order::{order_event_to_pyobject, pyobject_to_order_event},
     types::{Price, Quantity},
 };

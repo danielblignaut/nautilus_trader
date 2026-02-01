@@ -163,6 +163,7 @@ fn engine_config() -> OrderMatchingEngineConfig {
         use_reduce_only: true,
         use_market_order_acks: false,
         price_protection_points: None,
+        defer_order_events: false,
     }
 }
 // -- HELPERS ---------------------------------------------------------------------------
@@ -301,11 +302,11 @@ fn test_process_order_when_invalid_quantity_precision(
     account_id: AccountId,
     instrument_eth_usdt: InstrumentAny,
 ) {
-    // Create market order with invalid quantity precision 0 for eth/usdt precision of 3
+    // Create market order with invalid quantity precision 4 for eth/usdt precision of 3
     let mut market_order_invalid_precision = OrderTestBuilder::new(OrderType::Market)
         .instrument_id(instrument_eth_usdt.id())
         .side(OrderSide::Buy)
-        .quantity(Quantity::from("1"))
+        .quantity(Quantity::from("1.0001"))
         .submit(true)
         .build();
 
@@ -322,7 +323,7 @@ fn test_process_order_when_invalid_quantity_precision(
     assert_eq!(
         first_message.message().unwrap(),
         Ustr::from(
-            "Invalid order quantity precision for order O-19700101-000000-001-001-1, was 0 when ETHUSDT-PERP.BINANCE size precision is 3"
+            "Invalid order quantity precision for order O-19700101-000000-001-001-1, was 4 when ETHUSDT-PERP.BINANCE size precision is 3"
         )
     );
 }

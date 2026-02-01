@@ -307,6 +307,37 @@ impl Account for CashAccount {
         fill: OrderFilled,         // TODO: Make this a reference
         position: Option<Position>,
     ) -> anyhow::Result<Vec<Money>> {
+        // Special handling for betting instruments
+        // Betting markets trade binary outcome contracts in a single currency (e.g., USDC)
+        // PnL is realized as (exit_price - entry_price) * quantity in that currency
+        // NOT as a currency exchange like spot markets
+        if let InstrumentAny::Betting(_betting_instrument) = &instrument {
+            let mut pnls: Vec<Money> = Vec::new();
+
+            // Only realize PnL on position reduction (opposite side fill)
+            if let Some(ref pos) = position
+                && pos.quantity.is_positive()
+                && pos.entry != fill.order_side
+            {
+                // Calculate PnL: (exit_price - entry_price) * quantity
+                let pnl_quantity = Quantity::from_raw(
+                    fill.last_qty.raw.min(pos.quantity.raw),
+                    fill.last_qty.precision,
+                );
+                
+                let pnl = pos.calculate_pnl(
+                    pos.avg_px_open,
+                    fill.last_px.as_f64(),
+                    pnl_quantity,
+                );
+                
+                pnls.push(pnl);
+            }
+
+            return Ok(pnls);
+        }
+
+        // For all other instruments, use the standard cash account logic
         self.base_calculate_pnls(instrument, fill, position)
     }
 

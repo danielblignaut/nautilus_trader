@@ -23,7 +23,7 @@ use pyo3::{basic::CompareOp, prelude::*};
 use rust_decimal::Decimal;
 
 use crate::{
-    data::bet::{Bet, BetPosition, calc_bets_pnl, inverse_probability_to_bet, probability_to_bet},
+    data::bet::{calc_bets_pnl, inverse_probability_to_bet, probability_to_bet, Bet, BetPosition},
     enums::{BetSide, OrderSide},
 };
 

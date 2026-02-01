@@ -31,8 +31,8 @@ use nautilus_common::{
     cache::Cache, clients::ExecutionClient, clock::Clock, messages::execution::TradingCommand,
 };
 use nautilus_core::{
+    correctness::{check_equal, FAILED},
     UnixNanos,
-    correctness::{FAILED, check_equal},
 };
 use nautilus_execution::{
     matching_core::OrderMatchInfo,
@@ -49,6 +49,7 @@ use nautilus_model::{
     identifiers::{InstrumentId, Venue},
     instruments::{Instrument, InstrumentAny},
     orderbook::OrderBook,
+    orders::Order,
     types::{AccountBalance, Currency, Money, Price},
 };
 use rust_decimal::Decimal;
@@ -220,8 +221,8 @@ impl SimulatedExchange {
             inflight_queue: BinaryHeap::new(),
             inflight_counter: AHashMap::new(),
             bar_execution: bar_execution.unwrap_or(true),
-            trade_execution: trade_execution.unwrap_or(true),
-            liquidity_consumption: liquidity_consumption.unwrap_or(true),
+            trade_execution: trade_execution.unwrap_or(false),
+            liquidity_consumption: liquidity_consumption.unwrap_or(false),
             reject_stop_orders: reject_stop_orders.unwrap_or(true),
             support_gtd_orders: support_gtd_orders.unwrap_or(true),
             support_contingent_orders: support_contingent_orders.unwrap_or(true),
@@ -307,7 +308,7 @@ impl SimulatedExchange {
         )
         .with_price_protection_points(price_protection);
         let instrument_id = instrument.id();
-        let matching_engine = OrderMatchingEngine::new(
+        let mut matching_engine = OrderMatchingEngine::new(
             instrument,
             self.instruments.len() as u32,
             self.fill_model.clone(),
@@ -319,6 +320,10 @@ impl SimulatedExchange {
             Rc::clone(&self.cache),
             matching_engine_config,
         );
+        // Set up deferred event sending to avoid RefCell re-borrow panics during backtest
+        matching_engine.set_event_sender(|event| {
+            crate::execution_client::defer_order_event(event);
+        });
         self.matching_engines.insert(instrument_id, matching_engine);
 
         log::info!("Added instrument {instrument_id} and created matching engine");
@@ -711,22 +716,31 @@ impl SimulatedExchange {
     ///
     /// Panics if popping an inflight command fails during processing.
     pub fn process(&mut self, ts_now: UnixNanos) {
-        // TODO implement correct clock fixed time setting self.clock.set_time(ts_now);
+        self.clock.borrow_mut().set_time(ts_now);
 
-        // Process inflight commands
+        // Move expired inflight commands to front of message queue (BE-10/NEW-BE-18)
+        // This matches Python's FIFO interleaving behavior
+        let mut inflight_commands = Vec::new();
         while let Some(inflight) = self.inflight_queue.peek() {
             if inflight.timestamp > ts_now {
-                // Future commands remain in the queue
                 break;
             }
-            // We get the inflight command, remove it from the queue and process it
             let inflight = self.inflight_queue.pop().unwrap();
-            self.process_trading_command(inflight.command);
+            inflight_commands.push(inflight.command);
+        }
+        // Prepend inflight commands to message queue
+        for command in inflight_commands.into_iter().rev() {
+            self.message_queue.push_front(command);
         }
 
-        // Process regular message queue
+        // Process merged message queue
         while let Some(command) = self.message_queue.pop_front() {
             self.process_trading_command(command);
+        }
+
+        // Process simulation modules (BE-5/NEW-BE-12)
+        for module in &self.modules {
+            module.process(ts_now);
         }
     }
 
@@ -766,7 +780,24 @@ impl SimulatedExchange {
                     matching_engine.process_order(&mut order, account_id);
                 }
                 TradingCommand::ModifyOrder(ref command) => {
-                    matching_engine.process_modify(command, account_id);
+                    // BE-4/NEW-BE-21: Check order status before routing to matching engine.
+                    // SUBMITTED orders are not yet known to the matching engine.
+                    let order_status = self
+                        .cache
+                        .borrow()
+                        .order(&command.client_order_id)
+                        .map(|o| o.status());
+                    if order_status == Some(nautilus_model::enums::OrderStatus::Submitted) {
+                        log::debug!(
+                            "ModifyOrder for SUBMITTED order {} deferred to message queue",
+                            command.client_order_id
+                        );
+                        // Re-queue for next processing cycle when order may be accepted
+                        self.message_queue
+                            .push_back(TradingCommand::ModifyOrder(command.clone()));
+                    } else {
+                        matching_engine.process_modify(command, account_id);
+                    }
                 }
                 TradingCommand::CancelOrder(ref command) => {
                     matching_engine.process_cancel(command, account_id);
@@ -808,7 +839,7 @@ impl SimulatedExchange {
                 .unwrap();
         }
 
-        // Set leverages
+        // Set leverages and persist back to cache
         if let Some(AccountAny::Margin(mut margin_account)) = self.get_account() {
             margin_account.set_default_leverage(self.default_leverage);
 
@@ -816,6 +847,12 @@ impl SimulatedExchange {
             for (instrument_id, leverage) in &self.leverages {
                 margin_account.set_leverage(*instrument_id, *leverage);
             }
+
+            // Write updated account back to cache so leverage settings persist
+            self.cache
+                .borrow_mut()
+                .update_account(AccountAny::Margin(margin_account))
+                .expect("Failed to update account with leverage settings");
         }
     }
 }
@@ -831,7 +868,7 @@ mod tests {
         messages::execution::{SubmitOrder, TradingCommand},
         msgbus::{self, stubs::get_typed_message_saving_handler},
     };
-    use nautilus_core::{UUID4, UnixNanos};
+    use nautilus_core::{UnixNanos, UUID4};
     use nautilus_execution::models::{
         fee::{FeeModelAny, MakerTakerFeeModel},
         fill::FillModel,
@@ -851,7 +888,7 @@ mod tests {
         identifiers::{
             AccountId, ClientOrderId, InstrumentId, StrategyId, TradeId, TraderId, Venue,
         },
-        instruments::{CryptoPerpetual, InstrumentAny, stubs::crypto_perpetual_ethusdt},
+        instruments::{stubs::crypto_perpetual_ethusdt, CryptoPerpetual, InstrumentAny},
         orders::{Order, OrderAny, OrderTestBuilder},
         stubs::TestDefault,
         types::{AccountBalance, Currency, Money, Price, Quantity},

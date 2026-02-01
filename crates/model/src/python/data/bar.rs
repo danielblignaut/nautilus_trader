@@ -14,20 +14,19 @@
 // -------------------------------------------------------------------------------------------------
 
 use std::{
-    collections::{HashMap, hash_map::DefaultHasher},
+    collections::{hash_map::DefaultHasher, HashMap},
     hash::{Hash, Hasher},
     str::FromStr,
 };
 
 use nautilus_core::{
     python::{
-        IntoPyObjectNautilusExt,
         serialization::{from_dict_pyo3, to_dict_pyo3},
-        to_pyvalue_err,
+        to_pyvalue_err, IntoPyObjectNautilusExt,
     },
     serialization::{
-        Serializable,
         msgpack::{FromMsgPack, ToMsgPack},
+        Serializable,
     },
 };
 use pyo3::{prelude::*, pyclass::CompareOp, types::PyDict};
@@ -35,8 +34,8 @@ use pyo3::{prelude::*, pyclass::CompareOp, types::PyDict};
 use super::data_to_pycapsule;
 use crate::{
     data::{
-        Data,
         bar::{Bar, BarSpecification, BarType},
+        Data,
     },
     enums::{AggregationSource, BarAggregation, PriceType},
     identifiers::InstrumentId,

@@ -26,7 +26,7 @@ use nautilus_core::python::to_pyvalue_err;
 use pyo3::{basic::CompareOp, prelude::*};
 
 use crate::{
-    defi::{AmmType, Blockchain, Chain, Dex, DexType, Pool, Token, chain::chains},
+    defi::{chain::chains, AmmType, Blockchain, Chain, Dex, DexType, Pool, Token},
     identifiers::InstrumentId,
 };
 

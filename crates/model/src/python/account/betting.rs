@@ -17,7 +17,7 @@ use nautilus_core::python::{to_pyruntime_err, to_pyvalue_err, IntoPyObjectNautil
 use pyo3::{basic::CompareOp, prelude::*, types::PyDict};
 
 use crate::{
-    accounts::{Account, CashAccount},
+    accounts::{Account, BettingAccount},
     enums::{AccountType, LiquiditySide, OrderSide},
     events::{AccountState, OrderFilled},
     identifiers::AccountId,
@@ -27,7 +27,7 @@ use crate::{
 };
 
 #[pymethods]
-impl CashAccount {
+impl BettingAccount {
     #[new]
     #[pyo3(signature = (event, calculate_account_state, allow_borrowing = false))]
     pub fn py_new(
@@ -59,7 +59,7 @@ impl CashAccount {
     fn __repr__(&self) -> String {
         format!(
             "{}(id={}, type={}, base={})",
-            stringify!(CashAccount),
+            stringify!(BettingAccount),
             self.id,
             self.account_type,
             self.base_currency.map_or_else(
