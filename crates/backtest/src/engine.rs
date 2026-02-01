@@ -211,7 +211,7 @@ impl BacktestEngine {
             latency_model,
             bar_execution,
             trade_execution,
-            None, // liquidity_consumption - use default (true)
+            Some(true), // liquidity_consumption - enable for L2 orderbooks
             reject_stop_orders,
             support_gtd_orders,
             support_contingent_orders,

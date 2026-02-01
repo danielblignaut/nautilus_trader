@@ -77,9 +77,9 @@ impl OrderMatchInfo {
     #[must_use]
     pub fn sort_price_raw(&self) -> i128 {
         if let Some(p) = self.limit_price {
-            p.raw
+            i128::from(p.raw)
         } else if let Some(p) = self.trigger_price {
-            p.raw
+            i128::from(p.raw)
         } else {
             i128::MAX
         }
