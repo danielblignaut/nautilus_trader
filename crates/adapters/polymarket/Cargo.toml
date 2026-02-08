@@ -1,0 +1,61 @@
+[package]
+name = "nautilus-polymarket"
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Polymarket execution adapter for the Nautilus trading engine"
+categories.workspace = true
+keywords.workspace = true
+documentation.workspace = true
+repository.workspace = true
+homepage.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[lib]
+name = "nautilus_polymarket"
+crate-type = ["rlib"]
+
+[features]
+default = ["high-precision"]
+high-precision = ["nautilus-model/high-precision"]
+
+[dependencies]
+nautilus-common = { workspace = true, features = ["live"] }
+nautilus-core = { workspace = true }
+nautilus-execution = { workspace = true }
+nautilus-model = { workspace = true }
+nautilus-system = { workspace = true }
+
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+log = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tokio-tungstenite = { workspace = true }
+ustr = { workspace = true }
+
+# Cryptographic dependencies for EIP-712 signing and API authentication
+alloy-primitives = "0.8"
+alloy-sol-types = "0.8"
+k256 = { version = "0.13", features = ["ecdsa"] }
+hmac = "0.12"
+sha2 = "0.10"
+sha3 = "0.10"
+hex = "0.4"
+base64 = "0.22"
+indexmap = "2"
+futures-util = "0.3"
+url = "2"
+
+[dev-dependencies]
+rstest = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
