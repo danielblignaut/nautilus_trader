@@ -33,6 +33,8 @@ pub struct KalshiExecutionClientConfig {
     pub subaccount: Option<i32>,
     /// Asset name (e.g. "BTC") for ticker resolution.
     pub asset: String,
+    /// Market timeframe (e.g. "15min") for ticker symbol construction.
+    pub timeframe: String,
     /// Maximum position size in USD (safety limit).
     pub max_position_usd: f64,
     /// Shared ticker map: instrument symbol → Kalshi market ticker.
@@ -54,6 +56,7 @@ impl Default for KalshiExecutionClientConfig {
             rest_url: "https://api.elections.kalshi.com/trade-api/v2".to_string(),
             subaccount: None,
             asset: "BTC".to_string(),
+            timeframe: "15min".to_string(),
             max_position_usd: 500.0,
             ticker_map: None,
             order_results: None,
@@ -106,6 +109,13 @@ impl KalshiExecutionClientConfig {
     #[must_use]
     pub fn with_max_position_usd(mut self, max: f64) -> Self {
         self.max_position_usd = max;
+        self
+    }
+
+    /// Set the market timeframe.
+    #[must_use]
+    pub fn with_timeframe(mut self, timeframe: String) -> Self {
+        self.timeframe = timeframe;
         self
     }
 
