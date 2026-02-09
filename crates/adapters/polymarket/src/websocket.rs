@@ -293,11 +293,11 @@ impl PolymarketWebSocket {
                         break;
                     }
                     _ = keepalive.tick() => {
-                        let ping = PongMessage { msg_type: "ping".to_string() };
-                        if let Ok(ping_json) = serde_json::to_string(&ping) {
-                            if let Err(e) = write.send(Message::Text(ping_json.into())).await {
-                                log::warn!("Polymarket WebSocket: keepalive ping failed: {}", e);
-                            }
+                        // Use WebSocket protocol-level PING frame (not JSON
+                        // {"type":"ping"} which the /ws/user channel rejects
+                        // as "INVALID OPERATION").
+                        if let Err(e) = write.send(Message::Ping(vec![].into())).await {
+                            log::warn!("Polymarket WebSocket: keepalive ping failed: {}", e);
                         }
                     }
                     msg = read.next() => {
