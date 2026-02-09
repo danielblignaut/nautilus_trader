@@ -691,9 +691,10 @@ impl ExecutionClient for PolymarketExecutionClient {
                             Ok(order_resp) => {
                                 if order_resp.success {
                                     log::info!(
-                                        "Order {:?} submitted successfully: venue_order_id={:?}",
+                                        "Order {:?} submitted successfully: venue_order_id={:?} status={:?}",
                                         client_order_id,
-                                        order_resp.order_id
+                                        order_resp.order_id,
+                                        order_resp.status
                                     );
                                     write_result(true);
                                 } else {

@@ -5539,6 +5539,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "nautilus-kalshi"
+version = "0.53.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64 0.22.1",
+ "futures-util",
+ "indexmap 2.13.0",
+ "log",
+ "nautilus-common",
+ "nautilus-core",
+ "nautilus-execution",
+ "nautilus-model",
+ "nautilus-system",
+ "pkcs8",
+ "reqwest 0.13.1",
+ "rsa",
+ "rstest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tokio",
+ "tokio-tungstenite",
+ "url",
+ "ustr",
+]
+
+[[package]]
 name = "nautilus-kraken"
 version = "0.53.0"
 dependencies = [
@@ -7478,6 +7506,7 @@ dependencies = [
  "pkcs1",
  "pkcs8",
  "rand_core 0.6.4",
+ "sha2 0.10.9",
  "signature",
  "spki",
  "subtle",
