@@ -133,3 +133,48 @@ impl KalshiExecutionClientConfig {
         self
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_timeframe() {
+        let config = KalshiExecutionClientConfig::default();
+        assert_eq!(config.timeframe, "15min");
+    }
+
+    #[test]
+    fn test_with_timeframe() {
+        let config = KalshiExecutionClientConfig::default()
+            .with_timeframe("5min".to_string());
+        assert_eq!(config.timeframe, "5min");
+    }
+
+    #[test]
+    fn test_new_inherits_default_timeframe() {
+        let config = KalshiExecutionClientConfig::new(
+            TraderId::from("T-001"),
+            AccountId::from("A-001"),
+            Venue::from("KALSHI"),
+            "key".to_string(),
+            "pem".to_string(),
+        );
+        assert_eq!(config.timeframe, "15min");
+        assert_eq!(config.asset, "BTC");
+    }
+
+    #[test]
+    fn test_builder_chain() {
+        let config = KalshiExecutionClientConfig::default()
+            .with_asset("ETH".to_string())
+            .with_timeframe("1h".to_string())
+            .with_subaccount(3)
+            .with_max_position_usd(1000.0);
+
+        assert_eq!(config.asset, "ETH");
+        assert_eq!(config.timeframe, "1h");
+        assert_eq!(config.subaccount, Some(3));
+        assert!((config.max_position_usd - 1000.0).abs() < 1e-10);
+    }
+}
